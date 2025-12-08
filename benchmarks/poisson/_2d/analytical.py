@@ -58,3 +58,33 @@ def compute_analytical_solution_at_points(
     x_coordinates = points[:, 0]
     y_coordinates = points[:, 1]
     return compute_analytical_solution(x_coordinates, y_coordinates)
+
+
+def solve(grid_resolution: int) -> tuple:
+    """Unified solver interface for CLI - generates analytical solution on a grid.
+
+    Creates a grid matching the FEM solver's node positions and evaluates
+    the analytical solution at each node.
+
+    Args:
+        grid_resolution: Number of cells in each dimension
+
+    Returns:
+        Tuple of (solution_values, node_positions)
+        - solution_values: shape (N,) array of u at each node
+        - node_positions: shape (N, 2) array of (x, y) coordinates
+    """
+    # Generate node positions matching linear FEM (nodes at cell corners)
+    # For a grid with N cells per dimension, we have N+1 nodes per dimension
+    nodes_per_dimension = grid_resolution + 1
+    x_values = np.linspace(0.0, 1.0, nodes_per_dimension)
+    y_values = np.linspace(0.0, 1.0, nodes_per_dimension)
+
+    # Create meshgrid and flatten to get all node positions
+    x_grid, y_grid = np.meshgrid(x_values, y_values)
+    node_positions = np.column_stack([x_grid.ravel(), y_grid.ravel()])
+
+    # Evaluate analytical solution at all nodes
+    solution_values = compute_analytical_solution_at_points(node_positions)
+
+    return solution_values, node_positions

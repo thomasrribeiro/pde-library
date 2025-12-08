@@ -1,26 +1,57 @@
-# CLAUDE.md - Warp Benchmark Codebase Guide
+# CLAUDE.md - PDE Benchmark Codebase Guide
 
 ## Overview
 
-This codebase benchmarks NVIDIA Warp's finite element method (FEM) solvers against analytical solutions for various physics domains. The framework measures accuracy via error norms, convergence rates, and timing performance.
+This codebase benchmarks PDE solvers against analytical solutions for various physics domains. The framework measures accuracy via error norms and convergence rates. Currently supports [NVIDIA Warp](https://github.com/NVIDIA/warp)'s FEM solvers with plans to add FEniCS, Firedrake, and other packages.
 
 ## Project Structure
 
 ```
-warp-benchmark/
+pde-benchmark/
+├── pde_cli.py             # CLI entry point
 ├── CLAUDE.md              # This file - codebase guide and coding standards
 ├── README.md              # User-facing documentation
 ├── requirements.txt       # Python dependencies (install with: uv pip install -r requirements.txt)
-├── src/                   # Reusable utility modules
-│   ├── timer.py           # GPU-synchronized timing utilities
-│   ├── metrics.py         # Error computation (L2, L∞, relative errors)
-│   ├── convergence.py     # Mesh refinement convergence analysis
+│
+├── src/                   # Shared utilities
+│   ├── metrics.py         # Error computation (L2, L∞, relative L2, MAE)
+│   ├── results.py         # Results caching utilities
 │   └── visualization.py   # Matplotlib-based visualizations
-└── benchmarks/            # Physics domain benchmarks
-    └── poisson/           # Poisson equation benchmarks
-        ├── analytical.py  # Manufactured solution u(x,y) = sin(πx)sin(πy)
-        ├── solver.py      # Warp FEM solver (procedural)
-        └── poisson_2d.py  # Main benchmark script
+│
+└── benchmarks/
+    ├── poisson/_2d/       # 2D Poisson equation
+    │   ├── warp.py        # Warp FEM solver
+    │   ├── analytical.py  # Analytical solution
+    │   └── main.py        # Legacy standalone script (deprecated, references old API)
+    │
+    └── laplace/_2d/       # 2D Laplace equation
+        ├── warp.py        # Warp FEM solver
+        ├── analytical.py  # Analytical solution
+        └── main.py        # Legacy standalone script (deprecated, references old API)
+```
+
+## CLI Usage
+
+The primary interface is `pde_cli.py`:
+
+```bash
+# List available benchmarks and cached results
+python pde_cli.py list
+
+# Run a solver at multiple resolutions
+python pde_cli.py run benchmarks/poisson/_2d --solver warp --resolution 8 16 32 64
+
+# Run both warp and analytical solutions
+python pde_cli.py run benchmarks/poisson/_2d --solver warp analytical --resolution 8 16 32 64
+
+# Compare solvers against analytical solution
+python pde_cli.py compare benchmarks/poisson/_2d --solver warp --reference analytical --resolution 32
+
+# Generate convergence plot
+python pde_cli.py plot-convergence benchmarks/poisson/_2d --solver warp --reference analytical
+
+# Show plot interactively
+python pde_cli.py plot-convergence benchmarks/poisson/_2d --solver warp --reference analytical --show
 ```
 
 ## Coding Standards
@@ -108,58 +139,123 @@ def compute_magnetic_field_magnitude_for_infinite_wire(
     """
 ```
 
+## Unified Solver Interface
+
+All solvers (`warp.py`, `fenics.py`, `analytical.py`, etc.) must implement:
+
+```python
+def solve(grid_resolution: int) -> Tuple[np.ndarray, np.ndarray]:
+    """Solve the problem at given resolution.
+
+    Args:
+        grid_resolution: Number of cells in each dimension
+
+    Returns:
+        Tuple of (solution_values, node_positions)
+        - solution_values: shape (N,) array of values at nodes
+        - node_positions: shape (N, 2) array of (x, y) coordinates
+    """
+```
+
 ## Physics Background
 
-### Poisson Equation
+### Poisson Equation (2D)
 
-The 2D Poisson equation benchmark solves:
+Solves `-∇²u = f` on [0,1]² with homogeneous Dirichlet BCs.
 
-```
--∇²u = f    on [0,1]²
-u = 0       on boundary (Dirichlet BC)
-```
+**Manufactured solution:** `u(x,y) = sin(πx)sin(πy)`
 
-Using manufactured solution `u(x,y) = sin(πx)sin(πy)`, which gives:
+This gives:
 - Source term: `f(x,y) = 2π²sin(πx)sin(πy)`
 - Boundary values: `u = 0` (since sin(0) = sin(π) = 0)
 - Peak value: `u(0.5, 0.5) = 1.0`
 
-This is ideal for verification because:
-- Scalar Lagrange elements (simpler than vector Nedelec)
-- Positive definite Laplacian (CG converges reliably)
-- Exact analytical solution for error measurement
+Expected convergence rate: ~2.0 for linear elements
+
+### Laplace Equation (2D)
+
+Solves `∇²u = 0` on [0,1]² with non-homogeneous Dirichlet BCs.
+
+**Boundary conditions:**
+- Top (y=1): `u = sin(πx)`
+- Other boundaries: `u = 0`
+
+**Analytical solution:** `u(x,y) = sin(πx) · sinh(πy) / sinh(π)`
+
+Expected convergence rate: ~2.0 for linear elements
 
 ## Key Components
 
-### benchmarks/poisson/analytical.py
+### benchmarks/poisson/_2d/analytical.py
 Manufactured solution functions:
-- `compute_analytical_solution(x, y)` - Returns sin(πx)sin(πy)
-- `compute_source_term(x, y)` - Returns 2π²sin(πx)sin(πy)
+- `compute_analytical_solution(x_coordinates, y_coordinates)` - Returns sin(πx)sin(πy)
+- `compute_source_term(x_coordinates, y_coordinates)` - Returns 2π²sin(πx)sin(πy)
 - `compute_analytical_solution_at_points(points)` - Evaluate at (N,2) array
+- `solve(grid_resolution)` - Unified interface for CLI
 
-### benchmarks/poisson/solver.py
+### benchmarks/poisson/_2d/warp.py
 Warp FEM Poisson solver:
 - `solve_poisson_2d(grid_resolution, polynomial_degree, quiet)` - Main entry point
+- `solve(grid_resolution)` - Unified interface for CLI
 - Returns `(solution_values, node_positions)` as numpy arrays
 - Uses Grid2D geometry, Lagrange elements, CG solver
 
-### benchmarks/poisson/poisson_2d.py
-Main benchmark script:
-- Single resolution run with error analysis
-- Convergence study across multiple resolutions
-- Prints L2, L∞, and relative errors
+### benchmarks/laplace/_2d/analytical.py
+Laplace analytical solution:
+- `compute_analytical_solution(x_coordinates, y_coordinates)` - Returns sin(πx)·sinh(πy)/sinh(π)
+- `compute_analytical_solution_at_points(points)` - Evaluate at (N,2) array
+- `compute_top_boundary_values(x_coordinates)` - Returns sin(πx) for top boundary
+- `solve(grid_resolution)` - Unified interface for CLI
+
+### benchmarks/laplace/_2d/warp.py
+Warp FEM Laplace solver with non-homogeneous Dirichlet BCs:
+- `solve_laplace_2d(grid_resolution, polynomial_degree, quiet)` - Main entry point
+- `solve(grid_resolution)` - Unified interface for CLI
+
+### src/results.py
+Results caching utilities:
+- `save_result(results_directory, solver_name, grid_resolution, solution_values, node_positions, metadata)` - Save to `<solver>_res032.npz`
+- `load_result(results_directory, solver_name, grid_resolution)` - Returns `(solution_values, node_positions, metadata)`
+- `result_exists(results_directory, solver_name, grid_resolution)` - Check if cached result exists
+- `list_cached_resolutions_for_solver(results_directory, solver_name)` - List resolutions for a solver
+- `list_all_cached_results(results_directory)` - Dict of solver → resolutions
+
+### src/metrics.py
+Error computation utilities:
+- `compute_l2_error_norm(numerical, analytical, quadrature_weights)` - L2 norm of difference
+- `compute_l_infinity_error_norm(numerical, analytical)` - L∞ norm of difference
+- `compute_relative_l2_error_norm(numerical, analytical, quadrature_weights)` - Relative L2 error
+- `compute_mean_absolute_error(numerical, analytical, quadrature_weights)` - Mean absolute error
+- `compute_all_error_metrics(numerical, analytical, quadrature_weights)` - Returns dict with all metrics
+
+### src/visualization.py
+Visualization utilities:
+- `create_convergence_plot(mesh_size_values, error_values, measured_convergence_rate, ...)` - Log-log convergence plot
+- `create_solution_comparison_from_points(node_positions, numerical, analytical, ...)` - Side-by-side comparison
+- `save_figure(figure, output_path, dpi)` - Save matplotlib figure
+- `show_figure(figure)` - Display matplotlib figure
+
+## Adding New Solvers
+
+To add a new solver (e.g., FEniCS):
+
+1. Create `fenics.py` in the benchmark directory
+2. Implement the `solve(grid_resolution)` function
+3. Use the CLI: `python pde_cli.py run benchmarks/poisson/_2d --solver fenics --resolution 32`
 
 ## Adding New Benchmarks
 
-1. Create a new folder under `benchmarks/` for the physics domain
-2. Add `analytical.py` with closed-form or manufactured solutions
-3. Add `solver.py` with procedural Warp FEM solver functions
-4. Add a main script (e.g., `problem_name.py`) with:
-   - Problem parameters
-   - Solver execution
-   - Analytical solution computation
-   - Error analysis (L2, L∞, relative errors)
-   - Optional: convergence study
+1. Create a new folder under `benchmarks/<domain>/_<dimension>/`
+2. Add `warp.py` with procedural Warp FEM solver implementing `solve()`
+3. Add `analytical.py` with closed-form solution implementing `solve()`
+
+## Results Caching
+
+Results are automatically cached to `<benchmark>/results/` as `.npz` files:
+- `warp_res032.npz` - Warp solution at resolution 32
+- `analytical_res032.npz` - Analytical solution at resolution 32
+
+Use `--force` to recompute cached results.
 
 ## Dependencies
 
@@ -168,19 +264,25 @@ Install with: `uv pip install -r requirements.txt`
 - `warp-lang` - NVIDIA Warp for GPU-accelerated FEM
 - `numpy` - Array operations
 - `matplotlib` - Visualizations
-- `scipy` - Scientific computing utilities
+- `scipy` - Scientific computing utilities (for interpolation in visualization)
 
 ## Running Benchmarks
 
-From the project root directory:
+### Via CLI (recommended)
 
 ```bash
-# Single resolution run
-uv run python benchmarks/poisson/poisson_2d.py
+# Run warp solver at multiple resolutions
+python pde_cli.py run benchmarks/poisson/_2d --solver warp --resolution 8 16 32 64
 
-# Specify resolution
-uv run python benchmarks/poisson/poisson_2d.py --resolution 64
+# Run both warp and analytical solutions
+python pde_cli.py run benchmarks/poisson/_2d --solver warp analytical --resolution 8 16 32 64
 
-# Run convergence study
-uv run python benchmarks/poisson/poisson_2d.py --convergence
+# Compare against analytical
+python pde_cli.py compare benchmarks/poisson/_2d --solver warp --reference analytical --resolution 32
+
+# Generate convergence plot
+python pde_cli.py plot-convergence benchmarks/poisson/_2d --solver warp --reference analytical
+
+# Generate and display convergence plot
+python pde_cli.py plot-convergence benchmarks/poisson/_2d --solver warp --reference analytical --show
 ```

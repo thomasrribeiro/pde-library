@@ -1,16 +1,14 @@
-# Warp Benchmark
+# PDE Benchmark
 
-Benchmarking framework for comparing [NVIDIA Warp](https://github.com/NVIDIA/warp)'s differential equation solvers against analytical solutions.
+Benchmarking framework for comparing PDE solvers against analytical solutions. Currently supports [NVIDIA Warp](https://github.com/NVIDIA/warp)'s FEM solvers with plans to add FEniCS, Firedrake, and other packages.
 
 ## Overview
 
-This project provides tools for validating and benchmarking Warp's FEM solvers across various physics domains:
+This project provides tools for validating and benchmarking PDE solvers across various physics domains:
 
-- **Magnetostatics** (implemented) - Infinite wire B-field
-- Acoustic waves (planned)
-- Thermal diffusion (planned)
-- Electromagnetics (planned)
-- Fluid dynamics (planned)
+- **Poisson Equation** (2D) - Manufactured solution benchmark
+- **Laplace Equation** (2D) - Non-homogeneous Dirichlet BC benchmark
+- More coming soon...
 
 ## Setup
 
@@ -23,113 +21,130 @@ source .venv/bin/activate
 uv pip install -r requirements.txt
 ```
 
-**Note**: Requires NVIDIA Warp to be installed. The benchmarks reference the Warp codebase at `/Users/thomasribeiro/code/warp` for FEM utilities.
+## CLI Usage
 
-## Usage
-
-### Interactive Notebook
-
-The primary interface is an interactive Python notebook (VS Code / PyCharm compatible):
+The primary interface is `pde_cli.py`:
 
 ```bash
-# Open in VS Code and run cells interactively
-code benchmarks/magnetostatics/infinite_wire.py
+# List available benchmarks and cached results
+python pde_cli.py list
+
+# Run a solver at multiple resolutions
+python pde_cli.py run benchmarks/poisson/_2d --solver warp --resolution 8 16 32 64
+
+# Run both warp and analytical solutions
+python pde_cli.py run benchmarks/poisson/_2d --solver warp analytical --resolution 8 16 32 64
+
+# Compare solvers against analytical solution
+python pde_cli.py compare benchmarks/poisson/_2d --solver warp --reference analytical --resolution 32
+
+# Generate convergence plot
+python pde_cli.py plot-convergence benchmarks/poisson/_2d --solver warp --reference analytical
+
+# Show plot interactively
+python pde_cli.py plot-convergence benchmarks/poisson/_2d --solver warp --reference analytical --show
 ```
 
-The notebook uses `#%%` cell markers for interactive execution.
+### CLI Commands
 
-### Running the Full Benchmark
+| Command | Description |
+|---------|-------------|
+| `list` | List available benchmarks and cached results |
+| `run` | Run solver(s) at specified resolutions |
+| `compare` | Compare solver(s) against a reference solution |
+| `plot-convergence` | Generate convergence plot from cached results |
 
-```bash
-python benchmarks/magnetostatics/infinite_wire.py
-```
+### Common Flags
+
+- `--solver`, `-s`: Name(s) of solver modules to use (e.g., `warp`, `analytical`)
+- `--reference`, `-ref`: Reference solver for comparison (e.g., `analytical`)
+- `--resolution`, `-r`: Grid resolution(s) to run
+- `--force`, `-f`: Force recomputation even if cached results exist
+- `--show`: Display plot interactively (for plot-convergence)
 
 ## Project Structure
 
 ```
-warp-benchmark/
-├── README.md
-├── requirements.txt
+pde-benchmark/
+├── pde_cli.py             # CLI entry point
+├── README.md              # This file
+├── CLAUDE.md              # Codebase guide and coding standards
+├── requirements.txt       # Python dependencies
 │
-├── src/                          # Shared utilities
-│   ├── timer.py                  # Timing with GPU synchronization
-│   ├── metrics.py                # Error norms (L2, Linf, relative)
-│   ├── convergence.py            # Convergence rate analysis
-│   └── visualization.py          # Plotly-based visualizations
+├── src/                   # Shared utilities
+│   ├── metrics.py         # Error computation (L2, L∞, relative, MAE)
+│   ├── results.py         # Results caching utilities
+│   └── visualization.py   # Matplotlib-based visualizations
 │
 └── benchmarks/
-    └── magnetostatics/
-        ├── analytical.py         # Analytical B-field solutions
-        ├── solver.py             # Warp FEM solver wrapper
-        └── infinite_wire.py      # Interactive benchmark notebook
+    ├── poisson/_2d/       # 2D Poisson equation
+    │   ├── warp.py        # Warp FEM solver
+    │   ├── analytical.py  # Analytical solution
+    │   └── main.py        # Legacy standalone script (deprecated)
+    │
+    └── laplace/_2d/       # 2D Laplace equation
+        ├── warp.py        # Warp FEM solver
+        ├── analytical.py  # Analytical solution
+        └── main.py        # Legacy standalone script (deprecated)
 ```
 
-## Magnetostatics Benchmark
+## Adding New Solvers
 
-### Problem: Infinite Current-Carrying Wire
-
-The first benchmark validates Warp's magnetostatics solver against the analytical solution for an infinite wire:
-
-**Analytical Solution:**
-```
-B = (μ₀ I) / (2π r)  in azimuthal direction
-```
-
-Where:
-- μ₀ = 4π × 10⁻⁷ H/m (vacuum permeability)
-- I = current [Amperes]
-- r = radial distance from wire [meters]
-
-### What the Benchmark Measures
-
-1. **Accuracy**: L2 and L∞ error norms vs analytical solution
-2. **Convergence Rate**: Error reduction with mesh refinement (expect O(h²))
-3. **Performance**: Solve time vs resolution
-
-### Expected Results
-
-For linear Nedelec elements:
-- Convergence rate ≈ 2.0 (second-order)
-- Error reduces by ~4× when resolution doubles
-
-## Utilities
-
-### Timing
+Each solver must implement a `solve()` function:
 
 ```python
-from src.timer import TimingContext
+def solve(grid_resolution: int) -> Tuple[np.ndarray, np.ndarray]:
+    """Solve the PDE at the given resolution.
 
-with TimingContext("solve", synchronize=True) as timer:
-    result = solve()
-print(f"Elapsed: {timer.elapsed_ms:.2f} ms")
+    Args:
+        grid_resolution: Number of cells in each dimension
+
+    Returns:
+        Tuple of (solution_values, node_positions)
+        - solution_values: shape (N,) array of values at nodes
+        - node_positions: shape (N, 2) array of (x, y) coordinates
+    """
 ```
 
-### Error Metrics
+To add a new solver (e.g., FEniCS):
+1. Create `fenics.py` in the benchmark directory
+2. Implement the `solve(grid_resolution)` function
+3. Use the CLI: `python pde_cli.py run benchmarks/poisson/_2d --solver fenics --resolution 32`
 
-```python
-from src.metrics import compute_errors
+## Results Caching
 
-errors = compute_errors(numerical, analytical)
-print(f"L2: {errors['L2']}, Linf: {errors['Linf']}")
-```
+Results are automatically cached to `<benchmark>/results/` as `.npz` files:
+- `warp_res032.npz` - Warp solution at resolution 32
+- `analytical_res032.npz` - Analytical solution at resolution 32
 
-### Visualization
+Use `--force` to recompute cached results.
 
-All plots use Plotly for interactive, web-ready visualizations:
+## Benchmarks
 
-```python
-from src.visualization import plot_convergence
+### Poisson Equation (2D)
 
-fig = plot_convergence(h_values, errors, convergence_rate=2.0)
-fig.show()
-```
+Solves `-∇²u = f` on [0,1]² with homogeneous Dirichlet BCs.
 
-## Future Plans
+**Manufactured solution:** `u(x,y) = sin(πx)sin(πy)`
 
-- Web dashboard for interactive visualization
-- Support for additional physics domains
-- Comparison with other solvers (FEniCS, etc.)
-- GPU performance profiling
+This gives:
+- Source term: `f(x,y) = 2π²sin(πx)sin(πy)`
+- Boundary values: `u = 0` (since sin(0) = sin(π) = 0)
+- Peak value: `u(0.5, 0.5) = 1.0`
+
+Expected convergence rate: ~2.0 for linear elements
+
+### Laplace Equation (2D)
+
+Solves `∇²u = 0` on [0,1]² with non-homogeneous Dirichlet BCs.
+
+**Boundary conditions:**
+- Top (y=1): `u = sin(πx)`
+- Other boundaries: `u = 0`
+
+**Analytical solution:** `u(x,y) = sin(πx) · sinh(πy) / sinh(π)`
+
+Expected convergence rate: ~2.0 for linear elements
 
 ## License
 
