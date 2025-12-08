@@ -1,18 +1,5 @@
 #!/usr/bin/env python3
-"""PDE Benchmark CLI - Run and compare PDE solvers.
-
-Usage:
-    pde run <benchmark_path> --solver <names> --resolution <N>...
-    pde compare <benchmark_path> --solver <names> --reference <name> --resolution <N>...
-    pde plot-convergence <benchmark_path> --solver <name> --reference <name>
-    pde list
-
-Examples:
-    pde run benchmarks/poisson/_2d --solver warp --resolution 8 16 32 64
-    pde compare benchmarks/poisson/_2d --solver warp --reference analytical --resolution 32
-    pde plot-convergence benchmarks/poisson/_2d --solver warp --reference analytical
-    pde list
-"""
+"""PDE Benchmark CLI - Run and compare PDE solvers."""
 
 import sys
 import argparse
@@ -33,15 +20,44 @@ from src.results import (
     list_cached_resolutions_for_solver,
 )
 from src.metrics import compute_all_error_metrics
-from src.visualization import create_convergence_plot, save_figure, show_figure
+from src.visualization import (
+    create_convergence_plot,
+    create_solution_subplots,
+    create_comparison_subplots,
+    save_figure,
+    show_figure,
+)
 
 
-def load_solver_module(benchmark_path: Path, solver_name: str):
-    """Dynamically load a solver module from a benchmark directory.
+def parse_solver_path(solver_path_string: str) -> Tuple[Path, str]:
+    """Parse a solver path into benchmark directory and solver name.
 
     Args:
-        benchmark_path: Path to benchmark directory
-        solver_name: Name of the solver (e.g., 'warp', 'analytical')
+        solver_path_string: Path to solver file (e.g., 'benchmarks/poisson/_2d/warp.py')
+
+    Returns:
+        Tuple of (benchmark_directory, solver_name)
+
+    Raises:
+        FileNotFoundError: If solver file doesn't exist
+    """
+    solver_path = Path(solver_path_string).resolve()
+    if not solver_path.exists():
+        raise FileNotFoundError(f"Solver file not found: {solver_path_string}")
+    if not solver_path.suffix == ".py":
+        raise ValueError(f"Solver must be a .py file: {solver_path_string}")
+
+    benchmark_directory = solver_path.parent
+    solver_name = solver_path.stem
+
+    return benchmark_directory, solver_name
+
+
+def load_solver_module(solver_path: Path):
+    """Dynamically load a solver module.
+
+    Args:
+        solver_path: Path to the solver .py file
 
     Returns:
         Loaded module with solve() function
@@ -50,119 +66,123 @@ def load_solver_module(benchmark_path: Path, solver_name: str):
         FileNotFoundError: If solver module doesn't exist
         AttributeError: If module doesn't have solve() function
     """
-    solver_file = benchmark_path / f"{solver_name}.py"
-    if not solver_file.exists():
-        raise FileNotFoundError(f"Solver module not found: {solver_file}")
+    if not solver_path.exists():
+        raise FileNotFoundError(f"Solver module not found: {solver_path}")
 
-    spec = importlib.util.spec_from_file_location(solver_name, solver_file)
+    spec = importlib.util.spec_from_file_location(solver_path.stem, solver_path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
 
     if not hasattr(module, "solve"):
-        raise AttributeError(f"Module {solver_file} does not have a solve() function")
+        raise AttributeError(f"Module {solver_path} does not have a solve() function")
 
     return module
 
 
 def run_solver(
-    benchmark_path: Path,
-    solver_name: str,
+    solver_path_string: str,
     grid_resolution: int,
+    output_dir: Path,
     force: bool = False,
-) -> Tuple[np.ndarray, np.ndarray]:
+) -> Tuple[np.ndarray, np.ndarray, str]:
     """Run a solver and save results.
 
     Args:
-        benchmark_path: Path to benchmark directory
-        solver_name: Name of the solver
+        solver_path_string: Path to solver file
         grid_resolution: Grid resolution
+        output_dir: Directory to save results
         force: If True, recompute even if cached
 
     Returns:
-        Tuple of (solution_values, node_positions)
+        Tuple of (solution_values, node_positions, solver_name)
     """
-    results_dir = benchmark_path / "results"
+    benchmark_dir, solver_name = parse_solver_path(solver_path_string)
+    solver_path = Path(solver_path_string).resolve()
 
     # Check cache
-    if not force and result_exists(results_dir, solver_name, grid_resolution):
-        print(f"  {solver_name} at resolution {grid_resolution}: loaded from cache")
-        solution, positions, _ = load_result(results_dir, solver_name, grid_resolution)
-        return solution, positions
+    if not force and result_exists(output_dir, solver_name, grid_resolution):
+        print(f"  {solver_path_string} at resolution {grid_resolution}: loaded from cache")
+        solution, positions, _ = load_result(output_dir, solver_name, grid_resolution)
+        return solution, positions, solver_name
 
     # Load and run solver
-    print(f"  {solver_name} at resolution {grid_resolution}: running...", end=" ", flush=True)
-    module = load_solver_module(benchmark_path, solver_name)
+    print(f"  {solver_path_string} at resolution {grid_resolution}: running...", end=" ", flush=True)
+    module = load_solver_module(solver_path)
     solution, positions = module.solve(grid_resolution)
 
     # Save result
-    save_result(results_dir, solver_name, grid_resolution, solution, positions)
-    print(f"saved to {solver_name}_res{grid_resolution:03d}.npz")
+    save_result(output_dir, solver_name, grid_resolution, solution, positions)
+    print(f"saved to {output_dir}/{solver_name}_res{grid_resolution:03d}.npz")
 
-    return solution, positions
+    return solution, positions, solver_name
 
 
 def cmd_run(args):
     """Handle 'pde run' command."""
-    benchmark_path = Path(args.benchmark_path).resolve()
-    if not benchmark_path.exists():
-        print(f"Error: Benchmark path does not exist: {benchmark_path}")
-        sys.exit(1)
+    output_dir = Path(args.output).resolve()
+    output_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"Running solvers in {benchmark_path}")
-
-    for solver_name in args.solver:
+    for solver_path in args.solver:
         for resolution in args.resolution:
             try:
-                run_solver(benchmark_path, solver_name, resolution, args.force)
+                run_solver(solver_path, resolution, output_dir, args.force)
             except FileNotFoundError as e:
                 print(f"Error: {e}")
                 sys.exit(1)
             except Exception as e:
-                print(f"Error running {solver_name} at resolution {resolution}: {e}")
+                print(f"Error running {solver_path} at resolution {resolution}: {e}")
                 sys.exit(1)
 
 
 def cmd_compare(args):
     """Handle 'pde compare' command."""
-    benchmark_path = Path(args.benchmark_path).resolve()
-    if not benchmark_path.exists():
-        print(f"Error: Benchmark path does not exist: {benchmark_path}")
+    output_dir = Path(args.output).resolve()
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    force = args.force
+
+    if len(args.solver) < 2:
+        print("Error: Need at least 2 solvers to compare")
         sys.exit(1)
 
-    results_dir = benchmark_path / "results"
+    # Parse all solver paths
+    solver_paths = []
+    solver_names = []
+    for solver_path in args.solver:
+        try:
+            _, solver_name = parse_solver_path(solver_path)
+            solver_paths.append(solver_path)
+            solver_names.append(solver_name)
+        except (FileNotFoundError, ValueError) as e:
+            print(f"Error with solver: {e}")
+            sys.exit(1)
 
-    print(f"Comparing solvers in {benchmark_path}")
-    print(f"Reference: {args.reference}")
+    print(f"Comparing: {', '.join(solver_names)}")
+    print(f"Output: {output_dir}")
     print()
 
     for resolution in args.resolution:
-        # Ensure reference solution exists
-        if not result_exists(results_dir, args.reference, resolution):
-            print(f"Reference {args.reference} at resolution {resolution} not found, generating...")
-            run_solver(benchmark_path, args.reference, resolution, force=False)
-
-        # Load reference solution
-        ref_solution, ref_positions, _ = load_result(results_dir, args.reference, resolution)
-
         print(f"Resolution {resolution}x{resolution}:")
         print("-" * 50)
 
-        for solver_name in args.solver:
-            # Ensure solver solution exists
-            if not result_exists(results_dir, solver_name, resolution):
-                print(f"  {solver_name} not found, generating...")
-                run_solver(benchmark_path, solver_name, resolution, force=False)
+        # Ensure all solutions exist and load them
+        solutions = {}
+        for solver_path, solver_name in zip(solver_paths, solver_names):
+            if force or not result_exists(output_dir, solver_name, resolution):
+                print(f"  {solver_path} at resolution {resolution}: generating...")
+                run_solver(solver_path, resolution, output_dir, force=force)
+            solution, _, _ = load_result(output_dir, solver_name, resolution)
+            solutions[solver_name] = solution
 
-            # Load solver solution
-            solver_solution, solver_positions, _ = load_result(results_dir, solver_name, resolution)
+        # Compare all pairs
+        for i, (path_a, name_a) in enumerate(zip(solver_paths, solver_names)):
+            for path_b, name_b in zip(solver_paths[i + 1:], solver_names[i + 1:]):
+                errors = compute_all_error_metrics(solutions[name_a], solutions[name_b])
 
-            # Compute errors
-            errors = compute_all_error_metrics(solver_solution, ref_solution)
-
-            print(f"  {solver_name} vs {args.reference}:")
-            print(f"    L2 Error:      {errors['l2_error']:.6e}")
-            print(f"    L∞ Error:      {errors['l_infinity_error']:.6e}")
-            print(f"    Relative L2:   {errors['relative_l2_error']:.4%}")
+                print(f"  {name_a} vs {name_b}:")
+                print(f"    L2 Error:      {errors['l2_error']:.6e}")
+                print(f"    L∞ Error:      {errors['l_infinity_error']:.6e}")
+                print(f"    Relative L2:   {errors['relative_l2_error']:.4%}")
 
         print()
 
@@ -187,66 +207,130 @@ def compute_convergence_rate(mesh_sizes: List[float], errors: List[float]) -> fl
     return float(rate)
 
 
-def cmd_plot_convergence(args):
-    """Handle 'pde plot-convergence' command."""
-    benchmark_path = Path(args.benchmark_path).resolve()
-    if not benchmark_path.exists():
-        print(f"Error: Benchmark path does not exist: {benchmark_path}")
-        sys.exit(1)
+def cmd_plot(args):
+    """Handle 'pde plot' command."""
+    output_dir = Path(args.output).resolve()
+    output_dir.mkdir(parents=True, exist_ok=True)
 
-    results_dir = benchmark_path / "results"
-    solver_name = args.solver
-    reference_name = args.reference
+    force = args.force
 
-    # Find all cached resolutions for this solver
-    solver_resolutions = list_cached_resolutions_for_solver(results_dir, solver_name)
-    if not solver_resolutions:
-        print(f"Error: No cached results found for solver '{solver_name}' in {results_dir}")
-        sys.exit(1)
+    # Parse all solver paths
+    solver_paths = []
+    solver_names = []
+    for solver_path in args.solver:
+        try:
+            _, solver_name = parse_solver_path(solver_path)
+            solver_paths.append(solver_path)
+            solver_names.append(solver_name)
+        except (FileNotFoundError, ValueError) as e:
+            print(f"Error with solver: {e}")
+            sys.exit(1)
 
-    print(f"Found {solver_name} results: {solver_resolutions}")
+    # Use first resolution for solution plots
+    plot_resolution = args.resolution[0]
 
-    # Collect data for convergence plot
-    mesh_sizes = []
-    l2_errors = []
+    # Ensure all solutions exist and load them
+    solutions_data = {}  # solver_name -> (solution, positions)
+    for solver_path, solver_name in zip(solver_paths, solver_names):
+        if force or not result_exists(output_dir, solver_name, plot_resolution):
+            print(f"  {solver_path} at resolution {plot_resolution}: generating...")
+            run_solver(solver_path, plot_resolution, output_dir, force=force)
+        solution, positions, _ = load_result(output_dir, solver_name, plot_resolution)
+        solutions_data[solver_name] = (solution, positions)
 
-    for resolution in solver_resolutions:
-        # Ensure reference exists
-        if not result_exists(results_dir, reference_name, resolution):
-            print(f"Reference {reference_name} at resolution {resolution} not found, generating...")
-            run_solver(benchmark_path, reference_name, resolution, force=False)
+    figures_to_show = []
 
-        # Load solutions
-        solver_solution, _, _ = load_result(results_dir, solver_name, resolution)
-        ref_solution, _, _ = load_result(results_dir, reference_name, resolution)
+    # Build descriptive filename from solver names
+    solvers_suffix = "_".join(solver_names)
 
-        # Compute error
-        errors = compute_all_error_metrics(solver_solution, ref_solution)
+    if args.compare and len(solver_names) >= 2:
+        # Compare mode: create comparison subplots for all pairs
+        print(f"Creating comparison plots for {len(solver_names)} solvers at resolution {plot_resolution}...")
 
-        mesh_sizes.append(1.0 / resolution)
-        l2_errors.append(errors['l2_error'])
+        # Build solution pairs with separate positions for each solver
+        solution_pairs = []
+        for i, name_a in enumerate(solver_names):
+            for name_b in solver_names[i + 1:]:
+                sol_a, pos_a = solutions_data[name_a]
+                sol_b, pos_b = solutions_data[name_b]
+                solution_pairs.append((name_a, sol_a, pos_a, name_b, sol_b, pos_b))
 
-    # Compute convergence rate
-    if len(mesh_sizes) >= 2:
-        rate = compute_convergence_rate(mesh_sizes, l2_errors)
-        print(f"Convergence rate: {rate:.2f}")
+        figure = create_comparison_subplots(
+            solution_pairs=solution_pairs,
+            plot_title=f"Solver Comparisons (resolution {plot_resolution})",
+        )
+
+        output_path = output_dir / f"comparison_{solvers_suffix}_res{plot_resolution:03d}.png"
+        save_figure(figure, output_path)
+        figures_to_show.append(figure)
+
     else:
-        rate = None
-        print("Warning: Need at least 2 resolutions to compute convergence rate")
+        # Standard mode: show each solution side by side
+        print(f"Creating solution plots for {len(solver_names)} solvers at resolution {plot_resolution}...")
 
-    # Create and save plot
-    figure = create_convergence_plot(
-        mesh_size_values=mesh_sizes,
-        error_values=l2_errors,
-        measured_convergence_rate=rate,
-        plot_title=f"{benchmark_path.name} - {solver_name} vs {reference_name}",
-    )
+        solutions_list = [
+            (name, solutions_data[name][0], solutions_data[name][1])
+            for name in solver_names
+        ]
 
-    output_path = results_dir / f"convergence_{solver_name}_vs_{reference_name}.png"
-    save_figure(figure, output_path)
+        figure = create_solution_subplots(
+            solutions=solutions_list,
+            plot_title=f"Solutions (resolution {plot_resolution})",
+        )
+
+        output_path = output_dir / f"solutions_{solvers_suffix}_res{plot_resolution:03d}.png"
+        save_figure(figure, output_path)
+        figures_to_show.append(figure)
+
+    # Convergence plot if requested and multiple resolutions provided
+    if args.convergence and len(args.resolution) >= 2 and len(solver_names) >= 2:
+        print(f"Creating convergence plots using resolutions {args.resolution}...")
+
+        # For convergence, compare each solver against the first one as reference
+        ref_name = solver_names[0]
+        ref_path = solver_paths[0]
+
+        for solver_path, solver_name in zip(solver_paths[1:], solver_names[1:]):
+            mesh_sizes = []
+            l2_errors = []
+
+            for resolution in args.resolution:
+                # Ensure both solutions exist
+                if force or not result_exists(output_dir, ref_name, resolution):
+                    run_solver(ref_path, resolution, output_dir, force=force)
+                if force or not result_exists(output_dir, solver_name, resolution):
+                    run_solver(solver_path, resolution, output_dir, force=force)
+
+                ref_solution, _, _ = load_result(output_dir, ref_name, resolution)
+                solver_solution, _, _ = load_result(output_dir, solver_name, resolution)
+
+                errors = compute_all_error_metrics(solver_solution, ref_solution)
+                mesh_sizes.append(1.0 / resolution)
+                l2_errors.append(errors['l2_error'])
+
+            # Compute convergence rate
+            rate = compute_convergence_rate(mesh_sizes, l2_errors)
+            print(f"  {solver_name} vs {ref_name}: convergence rate = {rate:.2f}")
+
+            figure = create_convergence_plot(
+                mesh_size_values=mesh_sizes,
+                error_values=l2_errors,
+                measured_convergence_rate=rate,
+                plot_title=f"{solver_name} vs {ref_name}",
+            )
+
+            output_path = output_dir / f"convergence_{solver_name}_vs_{ref_name}.png"
+            save_figure(figure, output_path)
+            figures_to_show.append(figure)
+
+    elif args.convergence and len(args.resolution) < 2:
+        print("Warning: --convergence requires at least 2 resolutions")
+    elif args.convergence and len(solver_names) < 2:
+        print("Warning: --convergence requires at least 2 solvers")
 
     if args.show:
-        show_figure(figure)
+        for figure in figures_to_show:
+            show_figure(figure)
 
 
 def cmd_list(args):
@@ -257,55 +341,56 @@ def cmd_list(args):
         print("No benchmarks directory found")
         return
 
-    print("Available benchmarks:")
+    print("Available solvers:")
     print()
 
-    # Find all benchmark directories (those containing warp.py or analytical.py)
-    benchmark_paths = []
-    for path in benchmarks_dir.rglob("*.py"):
-        if path.name in ("warp.py", "analytical.py"):
-            benchmark_dir = path.parent
-            if benchmark_dir not in benchmark_paths:
-                benchmark_paths.append(benchmark_dir)
+    # Group solvers by benchmark directory
+    benchmarks = {}
+    for path in sorted(benchmarks_dir.rglob("*.py")):
+        if path.stem in ("__init__", "main"):
+            continue
 
-    benchmark_paths = sorted(benchmark_paths)
+        benchmark_rel_path = path.parent.relative_to(PROJECT_ROOT)
+        if benchmark_rel_path not in benchmarks:
+            benchmarks[benchmark_rel_path] = []
+        benchmarks[benchmark_rel_path].append(path)
 
-    for benchmark_path in benchmark_paths:
-        # Get relative path from project root
-        rel_path = benchmark_path.relative_to(PROJECT_ROOT)
-        print(f"  {rel_path}")
+    # Display grouped by benchmark
+    for benchmark_path, solver_paths in benchmarks.items():
+        print(f"{benchmark_path}/")
 
-        # List available solvers
-        solvers = [p.stem for p in benchmark_path.glob("*.py")
-                   if p.stem not in ("__init__", "main")]
-        if solvers:
-            print(f"    solvers: {', '.join(sorted(solvers))}")
+        solver_names = [p.name for p in solver_paths]
+        print(f"  solvers: {', '.join(solver_names)}")
 
-        # List cached results
-        results_dir = benchmark_path / "results"
-        cached = list_all_cached_results(results_dir)
-        if cached:
-            for solver_name, resolutions in sorted(cached.items()):
-                print(f"    {solver_name}: {resolutions}")
-        else:
-            print("    (no cached results)")
+        # Check cached resolutions (assume all solvers in same dir share cache)
+        results_dir = solver_paths[0].parent / "results"
+        all_resolutions = set()
+        for solver_path in solver_paths:
+            resolutions = list_cached_resolutions_for_solver(results_dir, solver_path.stem)
+            all_resolutions.update(resolutions)
+
+        if all_resolutions:
+            sorted_resolutions = sorted(all_resolutions)
+            print(f"  cached resolutions: {sorted_resolutions}")
+
         print()
 
 
 def main():
     parser = argparse.ArgumentParser(
         description="PDE Benchmark CLI - Run and compare PDE solvers",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=__doc__,
     )
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
     # run command
     run_parser = subparsers.add_parser("run", help="Run solver(s) at specified resolutions")
-    run_parser.add_argument("benchmark_path", help="Path to benchmark directory")
     run_parser.add_argument(
-        "--solver", "-s", nargs="+", required=True,
-        help="Solver name(s) to run (e.g., warp analytical)"
+        "solver", nargs="+",
+        help="Solver file path(s) (e.g., warp.py or benchmarks/poisson/_2d/warp.py)"
+    )
+    run_parser.add_argument(
+        "--output", "-o", default="results",
+        help="Output directory for results (default: results)"
     )
     run_parser.add_argument(
         "--resolution", "-r", type=int, nargs="+", required=True,
@@ -317,43 +402,57 @@ def main():
     )
 
     # compare command
-    compare_parser = subparsers.add_parser("compare", help="Compare solver(s) against a reference")
-    compare_parser.add_argument("benchmark_path", help="Path to benchmark directory")
+    compare_parser = subparsers.add_parser("compare", help="Compare all pairs of solvers")
     compare_parser.add_argument(
-        "--solver", "-s", nargs="+", required=True,
-        help="Solver name(s) to compare"
+        "solver", nargs="+",
+        help="Solver file paths to compare (at least 2 required)"
     )
     compare_parser.add_argument(
-        "--reference", "-ref", required=True,
-        help="Reference solver name (e.g., analytical)"
+        "--output", "-o", default="results",
+        help="Output directory containing results (default: results)"
     )
     compare_parser.add_argument(
         "--resolution", "-r", type=int, nargs="+", required=True,
         help="Grid resolution(s) to compare"
     )
     compare_parser.add_argument(
-        "--plot", "-p", action="store_true",
-        help="Generate comparison plots"
+        "--force", "-f", action="store_true",
+        help="Force recomputation even if cached"
     )
 
-    # plot-convergence command
-    conv_parser = subparsers.add_parser("plot-convergence", help="Generate convergence plot")
-    conv_parser.add_argument("benchmark_path", help="Path to benchmark directory")
-    conv_parser.add_argument(
-        "--solver", "-s", required=True,
-        help="Solver name to plot"
+    # plot command
+    plot_parser = subparsers.add_parser("plot", help="Visualize solver solutions")
+    plot_parser.add_argument(
+        "solver", nargs="+",
+        help="Solver file path(s) to plot"
     )
-    conv_parser.add_argument(
-        "--reference", "-ref", required=True,
-        help="Reference solver name (e.g., analytical)"
+    plot_parser.add_argument(
+        "--resolution", "-r", type=int, nargs="+", required=True,
+        help="Grid resolution(s) - first used for solution plots, all used for convergence"
     )
-    conv_parser.add_argument(
+    plot_parser.add_argument(
+        "--output", "-o", default="results",
+        help="Output directory for plots (default: results)"
+    )
+    plot_parser.add_argument(
+        "--compare", "-c", action="store_true",
+        help="Show pairwise comparisons with error visualization"
+    )
+    plot_parser.add_argument(
+        "--convergence", action="store_true",
+        help="Generate convergence plot (requires 2+ solvers and 2+ resolutions)"
+    )
+    plot_parser.add_argument(
+        "--force", "-f", action="store_true",
+        help="Force recomputation even if cached"
+    )
+    plot_parser.add_argument(
         "--show", action="store_true",
-        help="Display plot interactively"
+        help="Display plots interactively"
     )
 
     # list command
-    subparsers.add_parser("list", help="List available benchmarks")
+    subparsers.add_parser("list", help="List available solvers")
 
     args = parser.parse_args()
 
@@ -365,8 +464,8 @@ def main():
         cmd_run(args)
     elif args.command == "compare":
         cmd_compare(args)
-    elif args.command == "plot-convergence":
-        cmd_plot_convergence(args)
+    elif args.command == "plot":
+        cmd_plot(args)
     elif args.command == "list":
         cmd_list(args)
 

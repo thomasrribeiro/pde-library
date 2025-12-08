@@ -11,7 +11,7 @@ pde-benchmark/
 ├── pde_cli.py             # CLI entry point
 ├── CLAUDE.md              # This file - codebase guide and coding standards
 ├── README.md              # User-facing documentation
-├── requirements.txt       # Python dependencies (install with: uv pip install -r requirements.txt)
+├── pyproject.toml         # Package configuration and dependencies
 │
 ├── src/                   # Shared utilities
 │   ├── metrics.py         # Error computation (L2, L∞, relative L2, MAE)
@@ -21,37 +21,41 @@ pde-benchmark/
 └── benchmarks/
     ├── poisson/_2d/       # 2D Poisson equation
     │   ├── warp.py        # Warp FEM solver
-    │   ├── analytical.py  # Analytical solution
-    │   └── main.py        # Legacy standalone script (deprecated, references old API)
+    │   └── analytical.py  # Analytical solution
     │
     └── laplace/_2d/       # 2D Laplace equation
         ├── warp.py        # Warp FEM solver
-        ├── analytical.py  # Analytical solution
-        └── main.py        # Legacy standalone script (deprecated, references old API)
+        └── analytical.py  # Analytical solution
 ```
 
 ## CLI Usage
 
-The primary interface is `pde_cli.py`:
+The primary interface is the `pde` command (after running `uv sync`):
 
 ```bash
-# List available benchmarks and cached results
-python pde_cli.py list
+# List available solvers and cached results
+pde list
 
 # Run a solver at multiple resolutions
-python pde_cli.py run benchmarks/poisson/_2d --solver warp --resolution 8 16 32 64
+pde run benchmarks/poisson/_2d/warp.py --resolution 8 16 32 64
 
-# Run both warp and analytical solutions
-python pde_cli.py run benchmarks/poisson/_2d --solver warp analytical --resolution 8 16 32 64
+# Run multiple solvers
+pde run benchmarks/poisson/_2d/warp.py benchmarks/poisson/_2d/analytical.py --resolution 8 16 32 64
 
-# Compare solvers against analytical solution
-python pde_cli.py compare benchmarks/poisson/_2d --solver warp --reference analytical --resolution 32
+# Compare solvers (all pairs) - prints error metrics
+pde compare benchmarks/poisson/_2d/warp.py benchmarks/poisson/_2d/analytical.py --resolution 32
 
-# Generate convergence plot
-python pde_cli.py plot-convergence benchmarks/poisson/_2d --solver warp --reference analytical
+# Plot solutions side by side
+pde plot benchmarks/poisson/_2d/warp.py benchmarks/poisson/_2d/analytical.py --resolution 32
 
-# Show plot interactively
-python pde_cli.py plot-convergence benchmarks/poisson/_2d --solver warp --reference analytical --show
+# Plot with pairwise comparisons and error visualization
+pde plot benchmarks/poisson/_2d/warp.py benchmarks/poisson/_2d/analytical.py --resolution 32 --compare
+
+# Plot with convergence analysis (requires 2+ resolutions)
+pde plot benchmarks/poisson/_2d/warp.py benchmarks/poisson/_2d/analytical.py --resolution 8 16 32 64 --convergence
+
+# Show plots interactively
+pde plot benchmarks/poisson/_2d/warp.py benchmarks/poisson/_2d/analytical.py --resolution 32 --show
 ```
 
 ## Coding Standards
@@ -231,7 +235,10 @@ Error computation utilities:
 ### src/visualization.py
 Visualization utilities:
 - `create_convergence_plot(mesh_size_values, error_values, measured_convergence_rate, ...)` - Log-log convergence plot
-- `create_solution_comparison_from_points(node_positions, numerical, analytical, ...)` - Side-by-side comparison
+- `create_solution_subplots(solutions, ...)` - Side-by-side solution visualization (1D/2D/3D)
+- `create_comparison_subplots(solution_pairs, ...)` - Pairwise comparisons with error visualization
+- `create_solution_comparison_from_points(node_positions, numerical, analytical, ...)` - Legacy side-by-side comparison
+- `determine_problem_dimension(node_positions)` - Detect spatial dimension from node data
 - `save_figure(figure, output_path, dpi)` - Save matplotlib figure
 - `show_figure(figure)` - Display matplotlib figure
 
@@ -241,7 +248,7 @@ To add a new solver (e.g., FEniCS):
 
 1. Create `fenics.py` in the benchmark directory
 2. Implement the `solve(grid_resolution)` function
-3. Use the CLI: `python pde_cli.py run benchmarks/poisson/_2d --solver fenics --resolution 32`
+3. Use the CLI: `pde run benchmarks/poisson/_2d/fenics.py --resolution 32`
 
 ## Adding New Benchmarks
 
@@ -259,30 +266,9 @@ Use `--force` to recompute cached results.
 
 ## Dependencies
 
-Install with: `uv pip install -r requirements.txt`
+Install with: `uv sync`
 
 - `warp-lang` - NVIDIA Warp for GPU-accelerated FEM
 - `numpy` - Array operations
 - `matplotlib` - Visualizations
 - `scipy` - Scientific computing utilities (for interpolation in visualization)
-
-## Running Benchmarks
-
-### Via CLI (recommended)
-
-```bash
-# Run warp solver at multiple resolutions
-python pde_cli.py run benchmarks/poisson/_2d --solver warp --resolution 8 16 32 64
-
-# Run both warp and analytical solutions
-python pde_cli.py run benchmarks/poisson/_2d --solver warp analytical --resolution 8 16 32 64
-
-# Compare against analytical
-python pde_cli.py compare benchmarks/poisson/_2d --solver warp --reference analytical --resolution 32
-
-# Generate convergence plot
-python pde_cli.py plot-convergence benchmarks/poisson/_2d --solver warp --reference analytical
-
-# Generate and display convergence plot
-python pde_cli.py plot-convergence benchmarks/poisson/_2d --solver warp --reference analytical --show
-```

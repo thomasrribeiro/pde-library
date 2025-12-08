@@ -1,0 +1,17 @@
+[project]
+name = "pde-benchmark"
+version = "0.1.0"
+description = "Benchmarking framework for comparing PDE solvers against analytical solutions"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy",
+    "matplotlib",
+    "scipy",
+    "warp-lang",
+]
+
+[project.scripts]
+pde = "pde_cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src", "benchmarks", "pde_cli.py"]
