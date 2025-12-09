@@ -2,11 +2,12 @@
 
 Solves: u_t = κ∇²u  on [0,1]²
 with homogeneous Dirichlet BC: u = 0 on boundary
-and initial condition: u₀(x,y) = sin(πx)sin(πy)
 
-The initial condition has:
-    - Peak value of 1.0 at center (0.5, 0.5)
-    - Zero on all boundaries (satisfies BCs automatically)
+Initial condition: Gaussian blob at center (0.5, 0.5)
+    u₀(x,y) = A·exp(-((x-0.5)² + (y-0.5)²) / σ²)
+
+    - Moderate width (σ = 0.1) for good numerical resolution
+    - Centered heat source that diffuses outward
 
 Uses backward Euler (implicit) time-stepping for unconditional stability:
     (M + κΔt·K) u^{n+1} = M·u^n
@@ -14,8 +15,10 @@ Uses backward Euler (implicit) time-stepping for unconditional stability:
 where M is the mass matrix and K is the stiffness matrix.
 
 Default parameters:
-    κ (diffusivity) = 0.1   (high diffusivity for dramatic decay)
-    T (final time) = 1.0    (long enough to see significant decay)
+    κ (diffusivity) = 0.01  (moderate diffusivity)
+    σ (Gaussian width) = 0.1 (well-resolved at typical grid resolutions)
+    A (amplitude) = 1.0
+    T (final time) = 0.5 (enough time to see significant spreading)
     Δt = T/1000 (1000 time steps)
 """
 
@@ -29,10 +32,16 @@ import warp.examples.fem.utils as fem_example_utils
 
 
 # Default parameters (must match analytical.py)
-DEFAULT_DIFFUSIVITY = 0.1  # High diffusivity for dramatic decay
-DEFAULT_FINAL_TIME = 1.0   # Long enough to see significant decay
-DEFAULT_NUM_TIME_STEPS = 1000  # More steps for longer simulation
-DEFAULT_NUM_OUTPUT_STEPS = 11  # Includes t=0
+DEFAULT_DIFFUSIVITY = 0.01  # Moderate diffusivity
+DEFAULT_FINAL_TIME = 0.5    # Enough time to see significant spreading
+DEFAULT_NUM_TIME_STEPS = 1000  # Fine time resolution for accuracy
+DEFAULT_NUM_OUTPUT_STEPS = 51  # More frames for smooth animation
+
+# Gaussian initial condition parameters (must match analytical.py)
+GAUSSIAN_CENTER_X = 0.5
+GAUSSIAN_CENTER_Y = 0.5
+GAUSSIAN_WIDTH_SIGMA = 0.1  # Moderate width (well-resolved at typical resolutions)
+GAUSSIAN_AMPLITUDE = 1.0
 
 
 @fem.integrand
@@ -67,11 +76,24 @@ def boundary_projector_form(
 
 @wp.func
 def initial_condition_function(position: wp.vec2):
-    """Initial condition u₀(x,y) = sin(πx)sin(πy)"""
+    """Initial condition: Gaussian blob at center.
+
+    u₀(x,y) = A·exp(-((x-x₀)² + (y-y₀)²) / σ²)
+    """
     x = position[0]
     y = position[1]
-    pi = 3.14159265358979323846
-    return wp.sin(pi * x) * wp.sin(pi * y)
+
+    # Gaussian parameters (must match module constants)
+    center_x = 0.5
+    center_y = 0.5
+    sigma = 0.1  # Moderate width
+    amplitude = 1.0
+
+    dx = x - center_x
+    dy = y - center_y
+    r_squared = dx * dx + dy * dy
+
+    return amplitude * wp.exp(-r_squared / (sigma * sigma))
 
 
 def solve_heat_2d(
@@ -86,7 +108,7 @@ def solve_heat_2d(
     """Solve 2D heat equation with backward Euler time-stepping.
 
     Solves: u_t = κ∇²u on [0,1]²
-    with u = 0 on boundary and u₀(x,y) = sin(πx)sin(πy).
+    with u = 0 on boundary and Gaussian IC at center.
 
     Args:
         grid_resolution: Number of cells in each dimension

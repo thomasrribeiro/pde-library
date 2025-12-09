@@ -33,7 +33,8 @@ pde-benchmark/
     │
     └── heat/_2d/          # 2D Heat/diffusion equation (time-dependent)
         ├── warp.py        # Warp FEM solver (backward Euler)
-        └── analytical.py  # Analytical solution
+        ├── dolfinx.py     # DOLFINx FEM solver (backward Euler)
+        └── analytical.py  # Analytical solution (Fourier series)
 ```
 
 ## CLI Usage
@@ -215,31 +216,50 @@ Expected convergence rate: ~2.0 for linear elements
 
 ### Helmholtz Equation (2D)
 
-Solves `-∇²u - k²u = f` on [0,1]² with homogeneous Dirichlet BCs.
+Solves the homogeneous Helmholtz equation `-∇²u - k₀²u = 0` on [0,1]² with mixed boundary conditions.
 
-**Manufactured solution:** `u(x,y) = sin(πx)sin(πy)` with `k² = π²`
+**Plane wave solution:** `u(x,y) = A·cos(k₀(cos(θ)x + sin(θ)y))`
 
-This gives:
-- Source term: `f(x,y) = (2π² - k²)sin(πx)sin(πy) = π²sin(πx)sin(πy)`
-- Boundary values: `u = 0`
-- Peak value: `u(0.5, 0.5) = 1.0`
+This represents acoustic/electromagnetic wave propagation at angle θ, based on Ihlenburg's "Finite Element Analysis of Acoustic Scattering" (p138-139).
+
+Parameters:
+- Wavenumber: `k₀ = 4π` (~12.57)
+- Propagation angle: `θ = π/4` (45°)
+- Amplitude: `A = 1.0`
+- Wavelength: `λ = 2π/k₀ = 0.5` (2 wavelengths across domain)
+
+**Mixed boundary conditions:**
+- Dirichlet: `u = u_exact` on x=0 and y=0
+- Neumann: `∂u/∂n = g` on x=1 and y=1, where `g = -∇u_exact · n`
+
+**Resolution requirements:** The "rule of thumb" is ~10 elements per wavelength. With λ = 0.5, minimum resolution ~20 for reasonable accuracy. Higher resolutions (64+) recommended for convergence studies. Pollution error is evident at coarse resolutions.
 
 Expected convergence rate: ~2.0 for linear elements
 
 ### Heat Equation (2D) - Time-Dependent
 
-Solves `u_t = κ∇²u` on [0,1]² with homogeneous Dirichlet BCs.
+Solves `u_t = κ∇²u` on [0,1]² with homogeneous Dirichlet BCs (u = 0 on all boundaries).
 
-**Initial condition:** `u₀(x,y) = sin(πx)sin(πy)`
+**Initial condition:** Gaussian blob at center approximating a delta function
+`u₀(x,y) = A·exp(-((x-0.5)² + (y-0.5)²) / σ²)`
 
-**Analytical solution:** `u(x,y,t) = exp(-2π²κt) sin(πx)sin(πy)`
+The Gaussian is very sharp (σ = 0.02), creating a concentrated heat source at the center that diffuses outward and is absorbed at the boundaries.
+
+**Analytical solution:** Double Fourier sine series
+`u(x,y,t) = Σₘ Σₙ Bₘₙ exp(-π²κ(m² + n²)t) sin(mπx) sin(nπy)`
+
+where `Bₘₙ = 4 ∫∫ u₀(x,y) sin(mπx) sin(nπy) dx dy` are the Fourier coefficients computed via numerical quadrature.
 
 Default parameters:
-- Diffusivity: `κ = 0.1`
-- Final time: `T = 1.0`
+- Diffusivity: `κ = 0.01` (moderate diffusivity)
+- Gaussian width: `σ = 0.02` (very sharp, delta-like)
+- Amplitude: `A = 1.0`
+- Final time: `T = 0.5` (enough time to see significant spreading)
 - Time steps: 1000 (backward Euler)
+- Output steps: 51 (for smooth animation)
+- Fourier modes: 100 (sufficient for sharp Gaussian)
 
-The solution decays exponentially in time. Expected spatial convergence rate: ~2.0 for linear elements.
+The heat diffuses radially from the center and is absorbed at the boundaries. Expected spatial convergence rate: ~2.0 for linear elements.
 
 ## Key Components
 
@@ -268,6 +288,22 @@ Laplace analytical solution:
 Warp FEM Laplace solver with non-homogeneous Dirichlet BCs:
 - `solve_laplace_2d(grid_resolution, polynomial_degree, quiet)` - Main entry point
 - `solve(grid_resolution)` - Unified interface for CLI
+
+### benchmarks/helmholtz/_2d/analytical.py
+Plane wave analytical solution:
+- `compute_phase_at_coordinates(x, y)` - Computes φ = k₀(cos(θ)x + sin(θ)y)
+- `compute_analytical_solution(x, y)` - Returns A·cos(φ)
+- `compute_gradient_x_component(x, y)` - Returns ∂u/∂x
+- `compute_gradient_y_component(x, y)` - Returns ∂u/∂y
+- `compute_neumann_boundary_flux(x, y, nx, ny)` - Returns g = -∇u · n
+- `solve(grid_resolution)` - Unified interface for CLI
+
+### benchmarks/helmholtz/_2d/warp.py
+Warp FEM Helmholtz solver with mixed BCs (Dirichlet on x=0, y=0; Neumann on x=1, y=1):
+- `solve_helmholtz_2d(grid_resolution, polynomial_degree, quiet)` - Main entry point
+- `solve(grid_resolution)` - Unified interface for CLI
+- Uses selective boundary projector for mixed BCs
+- Neumann BC via surface integral in weak form
 
 ### src/results.py
 Results caching utilities:
@@ -363,3 +399,40 @@ conda env update -f environment.yml
 ```
 
 **Never run Python without activating the conda environment first.** All debugging, script execution, and package management must go through the conda environment.
+
+## Reference Source Code (IMPORTANT)
+
+When implementing solvers, **always consult the local source code repositories** for accurate API usage, examples, and available features:
+
+### NVIDIA Warp
+
+**Location:** `/Users/thomasribeiro/code/warp`
+
+Before writing any Warp FEM code, explore this repository to understand:
+- Available solvers in `warp/optim/linear.py` (CG, BiCGSTAB, GMRES, CR)
+- FEM utilities in `warp/fem/` directory
+- Example implementations in `warp/examples/fem/`
+- The `bsr_cg` utility in `warp/examples/fem/utils.py` supports multiple solvers via `method` parameter
+
+**Key insight:** Warp has built-in iterative solvers for indefinite systems:
+```python
+from warp.optim.linear import gmres, bicgstab
+
+# For indefinite matrices (like Helmholtz with -k² term), use GMRES:
+gmres(A=matrix, b=rhs, x=solution, tol=1e-8, maxiter=5000)
+
+# Or BiCGSTAB for non-symmetric systems:
+bicgstab(A=matrix, b=rhs, x=solution, tol=1e-8, maxiter=5000)
+```
+
+### FEniCS DOLFINx
+
+**Location:** `/Users/thomasribeiro/code/dolfinx`
+
+Before writing any DOLFINx/FEniCSx code, explore this repository to understand:
+- Python API in `python/dolfinx/`
+- FEM module in `python/dolfinx/fem/`
+- Example demos in `python/demo/`
+- PETSc solver interfaces
+
+**Always check these repositories first** rather than guessing API usage or relying on outdated documentation.

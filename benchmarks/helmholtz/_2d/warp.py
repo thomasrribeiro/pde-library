@@ -1,11 +1,17 @@
-"""Warp FEM solver for 2D Helmholtz equation.
+"""Warp FEM solver for 2D Helmholtz plane wave equation.
 
-Solves: -∇²u - k²u = f  on [0,1]²
-with homogeneous Dirichlet BC: u = 0 on boundary
+Solves: -∇²u - k₀²u = 0 on [0,1]²
 
-The weak form is: ∫(∇u·∇v - k²uv)dx = ∫fv dx
+Mixed boundary conditions (matching FEniCSx example from Ihlenburg's book):
+- Dirichlet: u = u_exact on x=0 and y=0
+- Neumann: ∂u/∂n = g on x=1 and y=1
 
-Based on Warp's example_diffusion.py structure.
+Exact solution: u(x,y) = A·cos(k₀·(cos(θ)·x + sin(θ)·y))
+
+The weak form with Neumann BC:
+∫(∇u·∇v - k₀²uv)dx = ∫g·v ds  (on Neumann boundary)
+
+Reference: Ihlenburg, "Finite Element Analysis of Acoustic Scattering" (p138-139)
 """
 
 import numpy as np
@@ -13,11 +19,39 @@ from typing import Tuple
 
 import warp as wp
 import warp.fem as fem
-import warp.examples.fem.utils as fem_example_utils
 
 
-# Wave number squared (k² = π²)
-WAVE_NUMBER_SQUARED = 3.14159265358979323846 ** 2
+# Wave parameters (matching FEniCSx example from Ihlenburg's book)
+PI = 3.14159265358979323846
+WAVE_NUMBER_K0 = 4.0 * PI  # k₀ = 4π (~12.57)
+WAVE_NUMBER_SQUARED_K0 = WAVE_NUMBER_K0 * WAVE_NUMBER_K0
+PROPAGATION_ANGLE_THETA = PI / 4.0  # 45 degrees
+AMPLITUDE_A = 1.0
+
+# Wave direction components (precomputed for efficiency)
+WAVE_DIRECTION_X = 0.7071067811865476  # cos(π/4) = √2/2
+WAVE_DIRECTION_Y = 0.7071067811865476  # sin(π/4) = √2/2
+
+
+@wp.func
+def compute_phase(x: float, y: float):
+    """Compute the phase φ = k₀·(cos(θ)·x + sin(θ)·y)."""
+    return WAVE_NUMBER_K0 * (WAVE_DIRECTION_X * x + WAVE_DIRECTION_Y * y)
+
+
+@wp.func
+def exact_solution_at_point(x: float, y: float):
+    """Compute exact solution u = A·cos(φ) at a point."""
+    phase = compute_phase(x, y)
+    return AMPLITUDE_A * wp.cos(phase)
+
+
+@wp.func
+def neumann_flux_at_point(x: float, y: float, normal_x: float, normal_y: float):
+    """Compute Neumann flux g = ∇u · n at a boundary point."""
+    phase = compute_phase(x, y)
+    direction_dot_normal = WAVE_DIRECTION_X * normal_x + WAVE_DIRECTION_Y * normal_y
+    return -AMPLITUDE_A * WAVE_NUMBER_K0 * wp.sin(phase) * direction_dot_normal
 
 
 @fem.integrand
@@ -26,59 +60,84 @@ def helmholtz_bilinear_form(
     u: fem.Field,
     v: fem.Field,
 ):
-    """Bilinear form for Helmholtz equation: (∇u, ∇v) - k²(u, v)
-
-    This corresponds to the weak form of -∇²u - k²u = f
-    """
+    """Bilinear form for Helmholtz: (∇u, ∇v) - k₀²(u, v)."""
     grad_term = wp.dot(fem.grad(u, sample), fem.grad(v, sample))
-    mass_term = WAVE_NUMBER_SQUARED * u(sample) * v(sample)
+    mass_term = WAVE_NUMBER_SQUARED_K0 * u(sample) * v(sample)
     return grad_term - mass_term
 
 
 @fem.integrand
-def source_linear_form(
+def neumann_boundary_form(
     sample: fem.Sample,
+    domain: fem.Domain,
     v: fem.Field,
-    source_field: fem.Field,
 ):
-    """Linear form for source term: (f, v)"""
-    return source_field(sample) * v(sample)
+    """Linear form for Neumann BC: ∫g·v ds on x=1 and y=1 boundaries."""
+    # Get position and normal
+    pos = fem.position(domain, sample)
+    nor = fem.normal(domain, sample)
+
+    # Only apply on Neumann boundaries (x=1 or y=1)
+    # x=1 has normal.x > 0, y=1 has normal.y > 0
+    is_neumann = wp.max(nor[0], nor[1])
+
+    # Compute Neumann flux g = ∇u · n
+    flux = neumann_flux_at_point(pos[0], pos[1], nor[0], nor[1])
+
+    return is_neumann * flux * v(sample)
 
 
 @fem.integrand
-def boundary_projector_form(
+def dirichlet_projector_form(
     sample: fem.Sample,
+    domain: fem.Domain,
     u: fem.Field,
     v: fem.Field,
 ):
-    """Bilinear form for boundary projection: (u, v) on boundary"""
-    return u(sample) * v(sample)
+    """Boundary projection for Dirichlet BC on x=0 and y=0.
 
-
-@wp.func
-def manufactured_source_function(position: wp.vec2):
-    """Source term f(x,y) = (2π² - k²)sin(πx)sin(πy)
-
-    For k² = π², this simplifies to: f = π²sin(πx)sin(πy)
+    Uses normal vector to select boundaries:
+    - x=0 has normal = (-1, 0), so normal.x < 0
+    - y=0 has normal = (0, -1), so normal.y < 0
     """
-    x = position[0]
-    y = position[1]
-    pi = 3.14159265358979323846
-    # f = (2π² - k²) * sin(πx)sin(πy)
-    # With k² = π², f = (2π² - π²) * sin(πx)sin(πy) = π² * sin(πx)sin(πy)
-    coefficient = 2.0 * pi * pi - WAVE_NUMBER_SQUARED
-    return coefficient * wp.sin(pi * x) * wp.sin(pi * y)
+    nor = fem.normal(domain, sample)
+
+    # Dirichlet on x=0 (normal.x < 0) or y=0 (normal.y < 0)
+    is_dirichlet = wp.max(-nor[0], -nor[1])
+
+    return is_dirichlet * u(sample) * v(sample)
+
+
+@fem.integrand
+def dirichlet_value_form(
+    sample: fem.Sample,
+    domain: fem.Domain,
+    v: fem.Field,
+):
+    """Linear form for Dirichlet values on x=0 and y=0 boundaries."""
+    pos = fem.position(domain, sample)
+    nor = fem.normal(domain, sample)
+
+    # Dirichlet on x=0 (normal.x < 0) or y=0 (normal.y < 0)
+    is_dirichlet = wp.max(-nor[0], -nor[1])
+
+    # Exact solution value
+    u_exact = exact_solution_at_point(pos[0], pos[1])
+
+    return is_dirichlet * u_exact * v(sample)
 
 
 def solve_helmholtz_2d(
-    grid_resolution: int = 32,
+    grid_resolution: int = 64,
     polynomial_degree: int = 1,
     quiet: bool = True,
 ) -> Tuple[np.ndarray, np.ndarray]:
-    """Solve 2D Helmholtz equation with manufactured solution.
+    """Solve 2D Helmholtz plane wave equation with mixed BCs.
 
-    Solves: -∇²u - k²u = (2π² - k²)sin(πx)sin(πy) on [0,1]²
-    with u = 0 on boundary.
+    Solves: -∇²u - k₀²u = 0 on [0,1]²
+    with:
+        - Dirichlet BC: u = u_exact on x=0 and y=0
+        - Neumann BC: ∂u/∂n = g on x=1 and y=1
 
     Args:
         grid_resolution: Number of cells in each dimension
@@ -103,60 +162,69 @@ def solve_helmholtz_2d(
         degree=polynomial_degree,
     )
 
-    # Create domain for integration
+    # Volume domain for integration
     domain = fem.Cells(geometry)
-
-    # Create trial and test functions
     trial = fem.make_trial(space=scalar_space, domain=domain)
     test = fem.make_test(space=scalar_space, domain=domain)
 
-    # Create source field using ImplicitField
-    source_field = fem.ImplicitField(
-        domain=domain,
-        func=manufactured_source_function,
-    )
-
-    # Assemble Helmholtz matrix: ∫(∇u·∇v - k²uv) dx
+    # Step 1: Assemble Helmholtz matrix
     helmholtz_matrix = fem.integrate(
         helmholtz_bilinear_form,
         fields={"u": trial, "v": test},
         output_dtype=float,
     )
 
-    # Assemble RHS vector: ∫f·v dx
+    # Step 2: Assemble Neumann BC contribution to RHS
+    boundary = fem.BoundarySides(geometry)
+    boundary_test = fem.make_test(space=scalar_space, domain=boundary)
+
     rhs_vector = fem.integrate(
-        source_linear_form,
-        fields={"v": test, "source_field": source_field},
+        neumann_boundary_form,
+        fields={"v": boundary_test},
         output_dtype=float,
     )
 
-    # Apply homogeneous Dirichlet BC on all boundaries
-    boundary = fem.BoundarySides(geometry)
+    # Step 3: Apply Dirichlet BC on x=0 and y=0
     boundary_trial = fem.make_trial(space=scalar_space, domain=boundary)
-    boundary_test = fem.make_test(space=scalar_space, domain=boundary)
 
-    boundary_projector = fem.integrate(
-        boundary_projector_form,
+    # Selective Dirichlet projector (uses normal to select boundaries)
+    dirichlet_projector = fem.integrate(
+        dirichlet_projector_form,
         fields={"u": boundary_trial, "v": boundary_test},
         assembly="nodal",
         output_dtype=float,
     )
 
-    # Project linear system to enforce BC (homogeneous, so no BC rhs needed)
-    fem.project_linear_system(helmholtz_matrix, rhs_vector, boundary_projector)
-
-    # Solve with Conjugate Gradient
-    solution = wp.zeros_like(rhs_vector)
-    fem_example_utils.bsr_cg(
-        helmholtz_matrix,
-        b=rhs_vector,
-        x=solution,
-        quiet=quiet,
+    # Dirichlet BC RHS
+    dirichlet_rhs = fem.integrate(
+        dirichlet_value_form,
+        fields={"v": boundary_test},
+        assembly="nodal",
+        output_dtype=float,
     )
 
+    # Project linear system to enforce Dirichlet BC
+    fem.project_linear_system(helmholtz_matrix, rhs_vector, dirichlet_projector, dirichlet_rhs)
+
+    # Solve using BiCGSTAB (faster than GMRES for this indefinite system)
+    from warp.optim.linear import bicgstab
+
+    solution = wp.zeros_like(rhs_vector)
+
+    # Use BiCGSTAB for indefinite systems - faster than GMRES
+    final_iter, residual, atol = bicgstab(
+        A=helmholtz_matrix,
+        b=rhs_vector,
+        x=solution,
+        tol=1e-6,
+        maxiter=5000,
+        check_every=50 if not quiet else 0,
+    )
+
+    if not quiet:
+        print(f"BiCGSTAB: Converged in {final_iter} iterations, residual = {residual:.6e}")
+
     # Extract node positions
-    scalar_field = scalar_space.make_field()
-    scalar_field.dof_values = solution
     node_positions = scalar_space.node_positions().numpy()
 
     return solution.numpy(), node_positions
@@ -173,6 +241,5 @@ def solve(grid_resolution: int) -> Tuple[np.ndarray, np.ndarray]:
         - solution_values: shape (N,) array of u at each node
         - node_positions: shape (N, 2) array of (x, y) coordinates
     """
-    import warp as wp
     wp.init()
     return solve_helmholtz_2d(grid_resolution=grid_resolution, quiet=True)
