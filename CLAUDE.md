@@ -31,10 +31,20 @@ pde-benchmark/
     │   ├── warp.py        # Warp FEM solver
     │   └── analytical.py  # Analytical solution
     │
-    └── heat/_2d/          # 2D Heat/diffusion equation (time-dependent)
-        ├── warp.py        # Warp FEM solver (backward Euler)
-        ├── dolfinx.py     # DOLFINx FEM solver (backward Euler)
-        └── analytical.py  # Analytical solution (Fourier series)
+    ├── heat/_2d/          # 2D Heat/diffusion equation (time-dependent)
+    │   ├── warp.py        # Warp FEM solver (backward Euler)
+    │   ├── dolfinx.py     # DOLFINx FEM solver (backward Euler)
+    │   └── analytical.py  # Analytical solution (Fourier series)
+    │
+    ├── advection/_2d/     # 2D Linear advection equation (time-dependent)
+    │   ├── warp.py        # Warp FEM solver (semi-Lagrangian)
+    │   ├── dolfinx.py     # DOLFINx FEM solver (SUPG stabilization)
+    │   └── analytical.py  # Analytical solution (translated Gaussian)
+    │
+    └── convection_diffusion/_2d/  # 2D Convection-diffusion equation (time-dependent)
+        ├── warp.py        # Warp FEM solver (semi-Lagrangian + implicit diffusion)
+        ├── dolfinx.py     # DOLFINx FEM solver (SUPG + diffusion)
+        └── analytical.py  # Analytical solution (spreading translated Gaussian)
 ```
 
 ## CLI Usage
@@ -240,10 +250,10 @@ Expected convergence rate: ~2.0 for linear elements
 
 Solves `u_t = κ∇²u` on [0,1]² with homogeneous Dirichlet BCs (u = 0 on all boundaries).
 
-**Initial condition:** Gaussian blob at center approximating a delta function
+**Initial condition:** Gaussian blob at center
 `u₀(x,y) = A·exp(-((x-0.5)² + (y-0.5)²) / σ²)`
 
-The Gaussian is very sharp (σ = 0.02), creating a concentrated heat source at the center that diffuses outward and is absorbed at the boundaries.
+The Gaussian creates a concentrated heat source at the center that diffuses outward and is absorbed at the boundaries.
 
 **Analytical solution:** Double Fourier sine series
 `u(x,y,t) = Σₘ Σₙ Bₘₙ exp(-π²κ(m² + n²)t) sin(mπx) sin(nπy)`
@@ -252,14 +262,85 @@ where `Bₘₙ = 4 ∫∫ u₀(x,y) sin(mπx) sin(nπy) dx dy` are the Fourier c
 
 Default parameters:
 - Diffusivity: `κ = 0.01` (moderate diffusivity)
-- Gaussian width: `σ = 0.02` (very sharp, delta-like)
+- Gaussian width: `σ = 0.1` (well-resolved at typical grid resolutions)
 - Amplitude: `A = 1.0`
 - Final time: `T = 0.5` (enough time to see significant spreading)
 - Time steps: 1000 (backward Euler)
 - Output steps: 51 (for smooth animation)
-- Fourier modes: 100 (sufficient for sharp Gaussian)
+- Fourier modes: 50 (sufficient for moderate-width Gaussian)
 
 The heat diffuses radially from the center and is absorbed at the boundaries. Expected spatial convergence rate: ~2.0 for linear elements.
+
+### Linear Advection Equation (2D) - Time-Dependent
+
+Solves `∂u/∂t + c⃗·∇u = 0` on [0,1]² - pure transport with no diffusion.
+
+**Initial condition:** Gaussian blob at (0.3, 0.3)
+`u₀(x,y) = A·exp(-((x-x₀)² + (y-y₀)²) / σ²)`
+
+**Velocity field:** Constant diagonal transport `c⃗ = (0.4, 0.4)`
+
+**Analytical solution:** Translated Gaussian
+`u(x,y,t) = u₀(x - cx·t, y - cy·t)`
+
+The Gaussian blob moves diagonally across the domain without changing shape.
+
+**Boundary conditions:**
+- Inflow (x=0, y=0 where c⃗·n < 0): `u = 0` (Dirichlet)
+- Outflow (x=1, y=1 where c⃗·n > 0): Natural BC (free exit)
+
+**Numerical methods:**
+- Warp: Semi-Lagrangian advection (trace particles backward along characteristics)
+- DOLFINx: SUPG (Streamline Upwind Petrov-Galerkin) stabilization
+
+Default parameters:
+- Velocity: `c⃗ = (0.4, 0.4)` (diagonal transport)
+- Gaussian center: `(x₀, y₀) = (0.3, 0.3)`
+- Gaussian width: `σ = 0.1`
+- Amplitude: `A = 1.0`
+- Final time: `T = 1.0` (blob moves to (0.7, 0.7))
+- Time steps: 1000
+- Output steps: 51
+
+Expected spatial convergence rate: ~2.0 for linear elements with appropriate stabilization.
+
+### Convection-Diffusion Equation (2D) - Time-Dependent
+
+Solves `∂u/∂t + c⃗·∇u = κ∇²u` on [0,1]² - combines advection (transport) with diffusion (spreading).
+
+**Initial condition:** Gaussian blob at (0.3, 0.3)
+`u₀(x,y) = A·exp(-((x-x₀)² + (y-y₀)²) / σ²)`
+
+**Velocity field:** Constant diagonal transport `c⃗ = (0.4, 0.4)`
+
+**Analytical solution:** Translating and spreading Gaussian
+`u(x,y,t) = A·σ²/(σ² + 4κt) · exp(-((x-x₀-cx·t)² + (y-y₀-cy·t)²)/(σ² + 4κt))`
+
+The Gaussian:
+- Translates with velocity c⃗ (advection)
+- Spreads with effective width σ_eff(t) = √(σ² + 4κt) (diffusion)
+- Amplitude decreases to conserve mass
+
+**Boundary conditions:** Homogeneous Neumann (natural BC) - flux vanishes at boundaries.
+
+**Numerical methods:**
+- Warp: Semi-Lagrangian advection + implicit backward Euler diffusion
+- DOLFINx: SUPG stabilization for advection + standard Galerkin for diffusion
+
+**Péclet number:** Pe = |c|h/(2κ) determines advection vs diffusion dominance.
+With κ = 0.01 and h ~ 1/32, Pe ≈ 0.9 (mixed regime).
+
+Default parameters:
+- Velocity: `c⃗ = (0.4, 0.4)` (diagonal transport)
+- Diffusivity: `κ = 0.01` (moderate spreading)
+- Gaussian center: `(x₀, y₀) = (0.3, 0.3)`
+- Gaussian width: `σ = 0.1`
+- Amplitude: `A = 1.0`
+- Final time: `T = 1.0` (blob moves to ~(0.7, 0.7) while spreading)
+- Time steps: 1000
+- Output steps: 51
+
+Expected spatial convergence rate: ~2.0 for linear elements.
 
 ## Key Components
 
