@@ -97,8 +97,10 @@ def solve(grid_resolution: int) -> tuple:
     y_values = np.linspace(0.0, 1.0, nodes_per_dimension)
 
     # Create meshgrid and flatten to get all node positions
+    # Use Fortran (column-major) ravel order to match Warp's node ordering:
+    # y varies first (along columns), then x increases
     x_grid, y_grid = np.meshgrid(x_values, y_values)
-    node_positions = np.column_stack([x_grid.ravel(), y_grid.ravel()])
+    node_positions = np.column_stack([x_grid.ravel(order='F'), y_grid.ravel(order='F')])
 
     # Evaluate analytical solution at all nodes
     solution_values = compute_analytical_solution_at_points(node_positions)

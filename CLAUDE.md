@@ -19,12 +19,20 @@ pde-benchmark/
 │   └── visualization.py   # Matplotlib-based visualizations
 │
 └── benchmarks/
-    ├── poisson/_2d/       # 2D Poisson equation
+    ├── poisson/_2d/       # 2D Poisson equation (static)
     │   ├── warp.py        # Warp FEM solver
     │   └── analytical.py  # Analytical solution
     │
-    └── laplace/_2d/       # 2D Laplace equation
-        ├── warp.py        # Warp FEM solver
+    ├── laplace/_2d/       # 2D Laplace equation (static)
+    │   ├── warp.py        # Warp FEM solver
+    │   └── analytical.py  # Analytical solution
+    │
+    ├── helmholtz/_2d/     # 2D Helmholtz equation (static)
+    │   ├── warp.py        # Warp FEM solver
+    │   └── analytical.py  # Analytical solution
+    │
+    └── heat/_2d/          # 2D Heat/diffusion equation (time-dependent)
+        ├── warp.py        # Warp FEM solver (backward Euler)
         └── analytical.py  # Analytical solution
 ```
 
@@ -56,7 +64,24 @@ pde plot benchmarks/poisson/_2d/warp.py benchmarks/poisson/_2d/analytical.py --r
 
 # Show plots interactively
 pde plot benchmarks/poisson/_2d/warp.py benchmarks/poisson/_2d/analytical.py --resolution 32 --show
+
+# Generate animated GIF for time-dependent PDEs (heat equation)
+pde plot benchmarks/heat/_2d/warp.py benchmarks/heat/_2d/analytical.py --resolution 32 --video
 ```
+
+### CLI Flags Reference
+
+| Flag | Commands | Description |
+|------|----------|-------------|
+| `--resolution, -r` | all | Grid resolution(s) to use |
+| `--output, -o` | all | Output directory (default: `results`) |
+| `--force, -f` | all | **Force recomputation, ignoring cached results** |
+| `--compare, -c` | plot | Show pairwise comparisons with error visualization |
+| `--convergence` | plot | Generate convergence plot (requires 2+ resolutions) |
+| `--show` | plot | Display plots interactively |
+| `--video` | plot | Generate animated GIF (time-dependent PDEs only) |
+
+**IMPORTANT:** Always use `--force` when testing code changes to ensure fresh results are computed instead of using stale cached data.
 
 ## Coding Standards
 
@@ -188,6 +213,34 @@ Solves `∇²u = 0` on [0,1]² with non-homogeneous Dirichlet BCs.
 
 Expected convergence rate: ~2.0 for linear elements
 
+### Helmholtz Equation (2D)
+
+Solves `-∇²u - k²u = f` on [0,1]² with homogeneous Dirichlet BCs.
+
+**Manufactured solution:** `u(x,y) = sin(πx)sin(πy)` with `k² = π²`
+
+This gives:
+- Source term: `f(x,y) = (2π² - k²)sin(πx)sin(πy) = π²sin(πx)sin(πy)`
+- Boundary values: `u = 0`
+- Peak value: `u(0.5, 0.5) = 1.0`
+
+Expected convergence rate: ~2.0 for linear elements
+
+### Heat Equation (2D) - Time-Dependent
+
+Solves `u_t = κ∇²u` on [0,1]² with homogeneous Dirichlet BCs.
+
+**Initial condition:** `u₀(x,y) = sin(πx)sin(πy)`
+
+**Analytical solution:** `u(x,y,t) = exp(-2π²κt) sin(πx)sin(πy)`
+
+Default parameters:
+- Diffusivity: `κ = 0.1`
+- Final time: `T = 1.0`
+- Time steps: 1000 (backward Euler)
+
+The solution decays exponentially in time. Expected spatial convergence rate: ~2.0 for linear elements.
+
 ## Key Components
 
 ### benchmarks/poisson/_2d/analytical.py
@@ -272,3 +325,28 @@ Install with: `uv sync`
 - `numpy` - Array operations
 - `matplotlib` - Visualizations
 - `scipy` - Scientific computing utilities (for interpolation in visualization)
+
+## Environment Setup (IMPORTANT)
+
+**Always use the uv virtual environment when running or debugging code.**
+
+Before running any Python scripts or commands:
+
+```bash
+# Activate the virtual environment (from project root)
+source .venv/bin/activate
+
+# Run Python files
+uv run python <script.py>
+
+# Run the CLI
+uv run pde <command>
+
+# Add new packages
+uv add <package-name>
+
+# Sync dependencies
+uv sync
+```
+
+**Never run Python directly without activating the venv first.** All debugging, script execution, and package management must go through the uv environment.

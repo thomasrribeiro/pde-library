@@ -114,8 +114,10 @@ def solve(grid_resolution: int) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     y_values = np.linspace(0.0, 1.0, nodes_per_dimension)
 
     # Create meshgrid and flatten to get all node positions
+    # Use Fortran (column-major) ravel order to match Warp's node ordering:
+    # y varies first (along columns), then x increases
     x_grid, y_grid = np.meshgrid(x_values, y_values)
-    node_positions = np.column_stack([x_grid.ravel(), y_grid.ravel()])
+    node_positions = np.column_stack([x_grid.ravel(order='F'), y_grid.ravel(order='F')])
 
     # Generate time values from t=0 to T
     time_values = np.linspace(0.0, DEFAULT_FINAL_TIME, DEFAULT_NUM_OUTPUT_STEPS)
