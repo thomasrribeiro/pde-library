@@ -3,25 +3,35 @@
 Heat equation: u_t = κ∇²u  on [0,1]²
 
 Initial condition: u₀(x,y) = sin(πx)sin(πy)
+    - Peak value of 1.0 at center (0.5, 0.5)
+    - Zero on all boundaries
+
 Boundary condition: u = 0 on all boundaries (homogeneous Dirichlet)
 
 Closed-form solution: u(x,y,t) = exp(-2π²κt) sin(πx)sin(πy)
+    - The solution decays exponentially in time
+    - Higher diffusivity = faster decay
+    - At t→∞, the solution approaches 0 everywhere
 
 This tests time-stepping schemes, parabolic behavior, and stability limits.
 
 Default parameters:
-    κ (diffusivity) = 0.01
-    T (final time) = 0.1
+    κ (diffusivity) = 0.1  (high diffusivity for dramatic decay)
+    T (final time) = 1.0   (long enough to see significant decay)
 """
 
 import numpy as np
+from typing import Tuple
 
 
-# Default diffusivity coefficient
-DEFAULT_DIFFUSIVITY = 0.01
+# Default diffusivity coefficient (high value for dramatic diffusion)
+DEFAULT_DIFFUSIVITY = 0.1
 
-# Default final time
-DEFAULT_FINAL_TIME = 0.1
+# Default final time (long enough to see significant decay)
+DEFAULT_FINAL_TIME = 1.0
+
+# Default number of output time steps
+DEFAULT_NUM_OUTPUT_STEPS = 11  # Includes t=0
 
 
 def compute_initial_condition(
@@ -82,19 +92,20 @@ def compute_analytical_solution_at_points(
     return compute_analytical_solution(x_coordinates, y_coordinates, time, diffusivity)
 
 
-def solve(grid_resolution: int) -> tuple:
+def solve(grid_resolution: int) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Unified solver interface for CLI - generates analytical solution on a grid.
 
-    Evaluates the analytical solution at the default final time T=0.1
+    Evaluates the analytical solution at multiple time points from t=0 to T
     with default diffusivity κ=0.01.
 
     Args:
         grid_resolution: Number of cells in each dimension
 
     Returns:
-        Tuple of (solution_values, node_positions)
-        - solution_values: shape (N,) array of u at each node at final time
-        - node_positions: shape (N, 2) array of (x, y) coordinates
+        Tuple of (solution_values, node_positions, time_values)
+        - solution_values: shape (num_time_steps, num_nodes) array of u at each node over time
+        - node_positions: shape (num_nodes, 2) array of (x, y) coordinates
+        - time_values: shape (num_time_steps,) array of time values
     """
     # Generate node positions matching linear FEM (nodes at cell corners)
     # For a grid with N cells per dimension, we have N+1 nodes per dimension
@@ -106,11 +117,18 @@ def solve(grid_resolution: int) -> tuple:
     x_grid, y_grid = np.meshgrid(x_values, y_values)
     node_positions = np.column_stack([x_grid.ravel(), y_grid.ravel()])
 
-    # Evaluate analytical solution at all nodes at final time
-    solution_values = compute_analytical_solution_at_points(
-        node_positions,
-        time=DEFAULT_FINAL_TIME,
-        diffusivity=DEFAULT_DIFFUSIVITY,
-    )
+    # Generate time values from t=0 to T
+    time_values = np.linspace(0.0, DEFAULT_FINAL_TIME, DEFAULT_NUM_OUTPUT_STEPS)
 
-    return solution_values, node_positions
+    # Evaluate analytical solution at all nodes for each time point
+    num_nodes = node_positions.shape[0]
+    solution_values = np.zeros((DEFAULT_NUM_OUTPUT_STEPS, num_nodes))
+
+    for time_index, time in enumerate(time_values):
+        solution_values[time_index, :] = compute_analytical_solution_at_points(
+            node_positions,
+            time=time,
+            diffusivity=DEFAULT_DIFFUSIVITY,
+        )
+
+    return solution_values, node_positions, time_values

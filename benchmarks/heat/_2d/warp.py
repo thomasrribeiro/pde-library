@@ -4,15 +4,19 @@ Solves: u_t = κ∇²u  on [0,1]²
 with homogeneous Dirichlet BC: u = 0 on boundary
 and initial condition: u₀(x,y) = sin(πx)sin(πy)
 
+The initial condition has:
+    - Peak value of 1.0 at center (0.5, 0.5)
+    - Zero on all boundaries (satisfies BCs automatically)
+
 Uses backward Euler (implicit) time-stepping for unconditional stability:
     (M + κΔt·K) u^{n+1} = M·u^n
 
 where M is the mass matrix and K is the stiffness matrix.
 
 Default parameters:
-    κ (diffusivity) = 0.01
-    T (final time) = 0.1
-    Δt = T/100 (100 time steps)
+    κ (diffusivity) = 0.1   (high diffusivity for dramatic decay)
+    T (final time) = 1.0    (long enough to see significant decay)
+    Δt = T/1000 (1000 time steps)
 """
 
 import numpy as np
@@ -24,10 +28,11 @@ import warp.sparse as sparse
 import warp.examples.fem.utils as fem_example_utils
 
 
-# Default parameters
-DEFAULT_DIFFUSIVITY = 0.01
-DEFAULT_FINAL_TIME = 0.1
-DEFAULT_NUM_TIME_STEPS = 100
+# Default parameters (must match analytical.py)
+DEFAULT_DIFFUSIVITY = 0.1  # High diffusivity for dramatic decay
+DEFAULT_FINAL_TIME = 1.0   # Long enough to see significant decay
+DEFAULT_NUM_TIME_STEPS = 1000  # More steps for longer simulation
+DEFAULT_NUM_OUTPUT_STEPS = 11  # Includes t=0
 
 
 @fem.integrand
@@ -75,8 +80,9 @@ def solve_heat_2d(
     diffusivity: float = DEFAULT_DIFFUSIVITY,
     final_time: float = DEFAULT_FINAL_TIME,
     num_time_steps: int = DEFAULT_NUM_TIME_STEPS,
+    num_output_steps: int = DEFAULT_NUM_OUTPUT_STEPS,
     quiet: bool = True,
-) -> Tuple[np.ndarray, np.ndarray]:
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Solve 2D heat equation with backward Euler time-stepping.
 
     Solves: u_t = κ∇²u on [0,1]²
@@ -87,15 +93,24 @@ def solve_heat_2d(
         polynomial_degree: Polynomial degree for Lagrange elements
         diffusivity: Thermal diffusivity κ
         final_time: Final simulation time T
-        num_time_steps: Number of time steps
+        num_time_steps: Number of time steps for integration
+        num_output_steps: Number of output time steps (including t=0)
         quiet: If True, suppress solver output
 
     Returns:
-        Tuple of (solution_values, node_positions)
-        - solution_values: shape (N,) array of u at each node at final time
-        - node_positions: shape (N, 2) array of (x, y) coordinates
+        Tuple of (solution_values, node_positions, time_values)
+        - solution_values: shape (num_output_steps, num_nodes) array of u at each node over time
+        - node_positions: shape (num_nodes, 2) array of (x, y) coordinates
+        - time_values: shape (num_output_steps,) array of time values
     """
     time_step_size = final_time / num_time_steps
+
+    # Compute which simulation steps correspond to output steps
+    output_time_values = np.linspace(0.0, final_time, num_output_steps)
+    output_simulation_steps = (output_time_values / time_step_size).astype(int)
+    # Ensure first step is 0 and last is num_time_steps
+    output_simulation_steps[0] = 0
+    output_simulation_steps[-1] = num_time_steps
 
     # Create 2D grid geometry on unit square [0, 1]²
     geometry = fem.Grid2D(
@@ -133,23 +148,21 @@ def solve_heat_2d(
 
     # Build the system matrix: A = M + κΔt·K
     # For backward Euler: A u^{n+1} = M u^n
+    # Note: bsr_axpy modifies y in-place, so we pass y=None to allocate a new matrix
+    # Formula: result = alpha*x + beta*y, with y=None treated as zero
+    # So we first compute κΔt·K, then add M
     system_matrix = sparse.bsr_axpy(
         x=stiffness_matrix,
-        y=mass_matrix,
+        y=None,
         alpha=diffusivity * time_step_size,
-        beta=1.0,
+        beta=0.0,
     )
-
-    # Set up boundary conditions
-    boundary = fem.BoundarySides(geometry)
-    boundary_trial = fem.make_trial(space=scalar_space, domain=boundary)
-    boundary_test = fem.make_test(space=scalar_space, domain=boundary)
-
-    boundary_projector = fem.integrate(
-        boundary_projector_form,
-        fields={"u": boundary_trial, "v": boundary_test},
-        assembly="nodal",
-        output_dtype=float,
+    # Now add M to get A = M + κΔt·K
+    sparse.bsr_axpy(
+        x=mass_matrix,
+        y=system_matrix,
+        alpha=1.0,
+        beta=1.0,
     )
 
     # Initialize solution with initial condition
@@ -162,57 +175,89 @@ def solve_heat_2d(
     u_current = scalar_space.make_field()
     fem.interpolate(initial_field, dest=u_current)
 
-    # Allocate arrays for time-stepping
+    # Get number of DOFs and extract node positions
     num_dofs = u_current.dof_values.shape[0]
-    u_next = wp.zeros(num_dofs, dtype=float)
-    rhs_vector = wp.zeros(num_dofs, dtype=float)
-
-    # Time-stepping loop
-    for step in range(num_time_steps):
-        # Compute RHS: M·u^n using matrix-vector multiplication
-        sparse.bsr_mv(
-            A=mass_matrix,
-            x=u_current.dof_values,
-            y=rhs_vector,
-            alpha=1.0,
-            beta=0.0,
-        )
-
-        # Apply boundary conditions to system
-        # Make a copy of system matrix for this step (BC projection modifies it)
-        system_matrix_step = sparse.bsr_copy(system_matrix)
-
-        # Project linear system to enforce homogeneous Dirichlet BC
-        fem.project_linear_system(system_matrix_step, rhs_vector, boundary_projector)
-
-        # Solve for u^{n+1}
-        u_next.zero_()
-        fem_example_utils.bsr_cg(
-            system_matrix_step,
-            b=rhs_vector,
-            x=u_next,
-            quiet=quiet,
-        )
-
-        # Update current solution
-        wp.copy(u_next, u_current.dof_values)
 
     # Extract node positions
     node_positions = scalar_space.node_positions().numpy()
 
-    return u_current.dof_values.numpy(), node_positions
+    # Identify boundary nodes for applying Dirichlet BC
+    # Nodes are on boundary if x=0, x=1, y=0, or y=1
+    boundary_mask = (
+        (np.abs(node_positions[:, 0]) < 1e-10) |
+        (np.abs(node_positions[:, 0] - 1.0) < 1e-10) |
+        (np.abs(node_positions[:, 1]) < 1e-10) |
+        (np.abs(node_positions[:, 1] - 1.0) < 1e-10)
+    )
+    boundary_indices = np.where(boundary_mask)[0]
+    interior_indices = np.where(~boundary_mask)[0]
+
+    # Convert system matrix to dense for proper BC application
+    # This is necessary because Warp's project_linear_system corrupts
+    # the interior-interior block for time-stepping problems
+    def bsr_to_dense(bsr_matrix):
+        values = bsr_matrix.values.numpy()
+        row_offsets = bsr_matrix.offsets.numpy()
+        col_indices = bsr_matrix.columns.numpy()
+        nrow = bsr_matrix.nrow
+        dense = np.zeros((nrow, nrow))
+        for i in range(nrow):
+            for j_idx in range(row_offsets[i], row_offsets[i + 1]):
+                j = col_indices[j_idx]
+                dense[i, j] = values[j_idx]
+        return dense
+
+    A_dense = bsr_to_dense(system_matrix)
+    M_dense = bsr_to_dense(mass_matrix)
+
+    # Apply homogeneous Dirichlet BC to system matrix:
+    # Set boundary rows to identity, zero boundary columns
+    for i in boundary_indices:
+        A_dense[i, :] = 0.0
+        A_dense[:, i] = 0.0
+        A_dense[i, i] = 1.0
+
+    # Allocate output storage
+    solution_values = np.zeros((num_output_steps, num_dofs))
+
+    # Store initial condition (t=0)
+    current_output_index = 0
+    solution_values[current_output_index, :] = u_current.dof_values.numpy()
+    current_output_index += 1
+
+    # Time-stepping loop using numpy for correct BC handling
+    u_current_np = u_current.dof_values.numpy()
+
+    for step in range(num_time_steps):
+        # Compute RHS: M·u^n
+        rhs_np = M_dense @ u_current_np
+
+        # Zero out boundary entries of RHS (homogeneous Dirichlet BC)
+        rhs_np[boundary_indices] = 0.0
+
+        # Solve for u^{n+1}
+        u_current_np = np.linalg.solve(A_dense, rhs_np)
+
+        # Check if this step is an output step
+        simulation_step_number = step + 1
+        if current_output_index < num_output_steps and simulation_step_number == output_simulation_steps[current_output_index]:
+            solution_values[current_output_index, :] = u_current_np
+            current_output_index += 1
+
+    return solution_values, node_positions, output_time_values
 
 
-def solve(grid_resolution: int) -> Tuple[np.ndarray, np.ndarray]:
+def solve(grid_resolution: int) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Unified solver interface for CLI.
 
     Args:
         grid_resolution: Number of cells in each dimension
 
     Returns:
-        Tuple of (solution_values, node_positions)
-        - solution_values: shape (N,) array of u at each node at final time
-        - node_positions: shape (N, 2) array of (x, y) coordinates
+        Tuple of (solution_values, node_positions, time_values)
+        - solution_values: shape (num_time_steps, num_nodes) array of u at each node over time
+        - node_positions: shape (num_nodes, 2) array of (x, y) coordinates
+        - time_values: shape (num_time_steps,) array of time values
     """
     import warp as wp
     wp.init()

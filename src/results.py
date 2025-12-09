@@ -52,16 +52,23 @@ def save_result(
     grid_resolution: int,
     solution_values: np.ndarray,
     node_positions: np.ndarray,
+    time_values: Optional[np.ndarray] = None,
     metadata: Optional[Dict[str, Any]] = None,
 ) -> Path:
     """Save solver result to disk.
+
+    Supports both static and time-dependent solutions:
+    - Static: solution_values has shape (num_nodes,), time_values is None
+    - Time-dependent: solution_values has shape (num_time_steps, num_nodes),
+      time_values has shape (num_time_steps,)
 
     Args:
         results_directory: Path to results folder
         solver_name: Name of the solver
         grid_resolution: Number of cells in each dimension
-        solution_values: Array of solution values at nodes
+        solution_values: Array of solution values at nodes (1D for static, 2D for time-dependent)
         node_positions: Array of node coordinates
+        time_values: Optional array of time values for time-dependent problems
         metadata: Optional dict of additional metadata
 
     Returns:
@@ -77,6 +84,9 @@ def save_result(
         "solver_name": solver_name,
     }
 
+    if time_values is not None:
+        save_dict["time_values"] = time_values
+
     if metadata is not None:
         for key, value in metadata.items():
             save_dict[key] = value
@@ -89,8 +99,13 @@ def load_result(
     results_directory: Path,
     solver_name: str,
     grid_resolution: int,
-) -> Tuple[np.ndarray, np.ndarray, Dict[str, Any]]:
+) -> Tuple[np.ndarray, np.ndarray, Optional[np.ndarray], Dict[str, Any]]:
     """Load cached solver result from disk.
+
+    Supports both static and time-dependent solutions:
+    - Static: solution_values has shape (num_nodes,), time_values is None
+    - Time-dependent: solution_values has shape (num_time_steps, num_nodes),
+      time_values has shape (num_time_steps,)
 
     Args:
         results_directory: Path to results folder
@@ -98,7 +113,8 @@ def load_result(
         grid_resolution: Number of cells in each dimension
 
     Returns:
-        Tuple of (solution_values, node_positions, metadata_dict)
+        Tuple of (solution_values, node_positions, time_values, metadata_dict)
+        time_values is None for static problems
 
     Raises:
         FileNotFoundError: If cached result doesn't exist
@@ -112,14 +128,15 @@ def load_result(
 
     solution_values = data["solution_values"]
     node_positions = data["node_positions"]
+    time_values = data["time_values"] if "time_values" in data.files else None
 
     # Collect any additional metadata
     metadata = {}
     for key in data.files:
-        if key not in ("solution_values", "node_positions"):
+        if key not in ("solution_values", "node_positions", "time_values"):
             metadata[key] = data[key]
 
-    return solution_values, node_positions, metadata
+    return solution_values, node_positions, time_values, metadata
 
 
 def list_cached_resolutions_for_solver(results_directory: Path, solver_name: str) -> List[int]:
