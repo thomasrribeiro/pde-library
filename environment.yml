@@ -1,0 +1,14 @@
+name: pde-benchmarks
+channels:
+  - conda-forge
+dependencies:
+  - python=3.13
+  - fenics-dolfinx
+  - mpich
+  - pyvista
+  - numpy
+  - matplotlib
+  - scipy
+  - pip
+  - pip:
+    - warp-lang

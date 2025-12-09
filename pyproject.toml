@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "pde-benchmark"
 version = "0.1.0"
@@ -13,5 +17,9 @@ dependencies = [
 [project.scripts]
 pde = "pde_cli:main"
 
-[tool.hatch.build.targets.wheel]
-packages = ["src", "benchmarks", "pde_cli.py"]
+[tool.setuptools]
+py-modules = ["pde_cli"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*", "benchmarks*"]

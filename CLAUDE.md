@@ -38,7 +38,7 @@ pde-benchmark/
 
 ## CLI Usage
 
-The primary interface is the `pde` command (after running `uv sync`):
+The primary interface is the `pde` command (after activating the conda environment):
 
 ```bash
 # List available solvers and cached results
@@ -319,34 +319,47 @@ Use `--force` to recompute cached results.
 
 ## Dependencies
 
-Install with: `uv sync`
+Install with conda:
 
+```bash
+conda create -n pde-benchmarks python=3.13 fenics-dolfinx mpich pyvista numpy matplotlib scipy -c conda-forge
+conda activate pde-benchmarks
+pip install warp-lang
+pip install -e .
+```
+
+- `fenics-dolfinx` - FEniCS DOLFINx for FEM
 - `warp-lang` - NVIDIA Warp for GPU-accelerated FEM
 - `numpy` - Array operations
 - `matplotlib` - Visualizations
-- `scipy` - Scientific computing utilities (for interpolation in visualization)
+- `scipy` - Scientific computing utilities
+- `pyvista` - 3D visualization
+- `mpich` - MPI implementation
 
 ## Environment Setup (IMPORTANT)
 
-**Always use the uv virtual environment when running or debugging code.**
+**Always use the conda environment when running or debugging code.**
 
 Before running any Python scripts or commands:
 
 ```bash
-# Activate the virtual environment (from project root)
-source .venv/bin/activate
+# Activate the conda environment (from project root)
+conda activate pde-benchmarks
 
 # Run Python files
-uv run python <script.py>
+python <script.py>
 
 # Run the CLI
-uv run pde <command>
+pde <command>
 
-# Add new packages
-uv add <package-name>
+# Add new conda packages
+conda install -c conda-forge <package-name>
 
-# Sync dependencies
-uv sync
+# Add new pip packages
+pip install <package-name>
+
+# Update environment
+conda env update -f environment.yml
 ```
 
-**Never run Python directly without activating the venv first.** All debugging, script execution, and package management must go through the uv environment.
+**Never run Python without activating the conda environment first.** All debugging, script execution, and package management must go through the conda environment.

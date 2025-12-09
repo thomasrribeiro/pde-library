@@ -2,3 +2,5 @@ __pycache__/
 **/results/
 *.pyc
 .venv/
+*.egg-info/
+.ipynb_checkpoints/

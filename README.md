@@ -5,12 +5,27 @@ Benchmarking framework for comparing PDE solvers against analytical solutions.
 ## Setup
 
 ```bash
-# Create virtual environment and install dependencies
-uv sync
+# Create conda environment from environment.yml
+conda env create -f environment.yml
 
-# Activate the virtual environment
-source .venv/bin/activate
+# Install the package in editable mode
+conda activate pde-benchmarks
+pip install -e .
+
+# Quick activation (alternative)
+source activate.sh
 ```
+
+<details>
+<summary>Manual setup (if needed)</summary>
+
+```bash
+conda create -n pde-benchmarks python=3.13 fenics-dolfinx mpich pyvista numpy matplotlib scipy -c conda-forge
+conda activate pde-benchmarks
+pip install warp-lang
+pip install -e .
+```
+</details>
 
 ## CLI Usage
 
