@@ -41,10 +41,21 @@ pde-benchmark/
     │   ├── dolfinx.py     # DOLFINx FEM solver (SUPG stabilization)
     │   └── analytical.py  # Analytical solution (translated Gaussian)
     │
-    └── convection_diffusion/_2d/  # 2D Convection-diffusion equation (time-dependent)
-        ├── warp.py        # Warp FEM solver (semi-Lagrangian + implicit diffusion)
-        ├── dolfinx.py     # DOLFINx FEM solver (SUPG + diffusion)
-        └── analytical.py  # Analytical solution (spreading translated Gaussian)
+    ├── convection_diffusion/_2d/  # 2D Convection-diffusion equation (time-dependent)
+    │   ├── warp.py        # Warp FEM solver (semi-Lagrangian + implicit diffusion)
+    │   ├── dolfinx.py     # DOLFINx FEM solver (SUPG + diffusion)
+    │   └── analytical.py  # Analytical solution (spreading translated Gaussian)
+    │
+    └── wave/              # 2D Wave equation (time-dependent, second-order hyperbolic)
+        ├── manufactured/_2d/  # Standing wave with Neumann boundaries
+        │   ├── warp.py        # Warp FEM solver (Newmark-beta)
+        │   ├── dolfinx.py     # DOLFINx FEM solver (Newmark-beta)
+        │   └── analytical.py  # Analytical solution (exact standing wave)
+        │
+        └── ricker/_2d/        # Point source with absorbing boundaries
+            ├── warp.py        # Warp FEM solver (Newmark-beta + damping sponge)
+            ├── dolfinx.py     # DOLFINx FEM solver (Newmark-beta + damping sponge)
+            └── analytical.py  # Semi-analytical (Green's function convolution)
 ```
 
 ## CLI Usage
@@ -339,6 +350,64 @@ Default parameters:
 - Final time: `T = 1.0` (blob moves to ~(0.7, 0.7) while spreading)
 - Time steps: 1000
 - Output steps: 51
+
+Expected spatial convergence rate: ~2.0 for linear elements.
+
+### Wave Equation (2D) - Time-Dependent (Second-Order Hyperbolic)
+
+Solves `∂²u/∂t² = c²∇²u` on [0,1]² - acoustic/elastic wave propagation.
+
+**Two benchmark problems are provided:**
+
+#### 1. Manufactured Solution (Standing Wave)
+
+**Equation:** `∂²u/∂t² = c²∇²u` with homogeneous Neumann boundaries
+
+**Solution:** Standing wave
+`u(x,y,t) = cos(2πmx)·cos(2πny)·cos(ωt)`
+
+where `ω = c·2π√(m² + n²)` satisfies the dispersion relation.
+
+This is an exact solution - perfect for convergence testing.
+
+Default parameters:
+- Wave speed: `c = 1.0`
+- Mode numbers: `m = n = 2` (2 wavelengths in each direction)
+- Angular frequency: `ω = 2π√8 ≈ 17.77`
+- Final time: `T = 1.0` (~2.8 oscillation periods)
+- Time steps: 2000
+- Output steps: 101
+
+**Numerical methods:**
+- Warp: Newmark-beta (β=0.25, γ=0.5) - unconditionally stable
+- DOLFINx: Newmark-beta (β=0.25, γ=0.5) - unconditionally stable
+
+#### 2. Ricker Wavelet with Absorbing Boundaries
+
+**Equation:** `∂²u/∂t² + σ(x,y)·∂u/∂t = c²∇²u + f(x,y,t)` with damping sponge layer
+
+**Source:** Point source at center (0.5, 0.5) with Ricker wavelet time signature
+`S(t) = (1 - 2·(π·f₀·(t-t_delay))²) · exp(-(π·f₀·(t-t_delay))²)`
+
+**Damping sponge layer:** σ(x,y) increases quadratically from 0 in physical domain [0.15, 0.85]² to σ_max at outer boundary. This absorbs outgoing waves.
+
+**Semi-analytical solution:** Green's function convolution (computed numerically)
+
+Default parameters:
+- Wave speed: `c = 1.0`
+- Center frequency: `f₀ = 15.0 Hz` (~10 wavelengths across domain)
+- Source delay: `t_delay = 0.1 s`
+- Sponge thickness: `0.15` (15% on each side)
+- Maximum damping: `σ_max = 20.0`
+- Final time: `T = 1.0`
+- Time steps: 2000
+- Output steps: 101
+
+**Numerical methods:**
+- Warp: Newmark-beta with spatially-varying damping matrix
+- DOLFINx: Newmark-beta with spatially-varying damping matrix
+
+**Note:** The semi-analytical solution can be slow due to numerical convolution at each grid point.
 
 Expected spatial convergence rate: ~2.0 for linear elements.
 
