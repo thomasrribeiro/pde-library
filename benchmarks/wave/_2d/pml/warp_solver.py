@@ -182,65 +182,125 @@ def update_velocity_y_staggered(
 
 
 @wp.kernel
-def update_pressure_staggered(
-    p: wp.array2d(dtype=float),
+def update_density_x_staggered(
+    rho_x: wp.array2d(dtype=float),
     vx: wp.array2d(dtype=float),
-    vy: wp.array2d(dtype=float),
-    pml_p_x: wp.array(dtype=float),
-    pml_p_y: wp.array(dtype=float),
+    pml_rho_x: wp.array(dtype=float),
+    pml_rho_y: wp.array(dtype=float),
     dt: float,
-    c_sq_rho_dx: float,
-    c_sq_rho_dy: float,
+    rho0_over_dx: float,
     nx: int,
     ny: int,
 ):
-    """Update pressure on staggered grid with jwave-style exponential PML.
+    """Update x-component of split density with jwave-style exponential PML.
 
-    p[i,j] is at cell center
-    Divergence: div(v) = (vx[i+1,j] - vx[i,j])/dx + (vy[i,j+1] - vy[i,j])/dy
-
-    Update formula (jwave-style): p = pml * (pml * p + dt * dp/dt)
-    The combined PML is applied as: pml_x * pml_y * (pml_x * pml_y * p + dt * dp/dt)
+    Mass conservation (x-component): drho_x/dt = -rho0 * dvx/dx
+    dvx/dx at cell center = (vx[i+1,j] - vx[i,j]) / dx
     """
     i, j = wp.tid()
 
     if i >= nx or j >= ny:
         return
 
-    # Skip boundaries (need vx[i+1,j] and vy[i,j+1])
-    if i >= nx - 1 or j >= ny - 1:
+    # Skip boundaries (need vx[i+1,j])
+    if i >= nx - 1:
         return
 
-    # Divergence using staggered velocities
+    # Velocity divergence (x-component only)
     dvx_dx = vx[i + 1, j] - vx[i, j]
-    dvy_dy = vy[i, j + 1] - vy[i, j]
 
-    # Pressure time derivative: dp/dt = -c²ρ * div(v)
-    div_v = c_sq_rho_dx * dvx_dx + c_sq_rho_dy * dvy_dy
-    dp_dt = -div_v
+    # Density time derivative: drho_x/dt = -rho0 * dvx/dx
+    drho_x_dt = -rho0_over_dx * dvx_dx
 
     # Combined PML (product of x and y components)
-    pml = pml_p_x[i] * pml_p_y[j]
+    pml = pml_rho_x[i] * pml_rho_y[j]
 
     # Exponential PML update (jwave-style)
-    p[i, j] = pml * (pml * p[i, j] + dt * dp_dt)
+    rho_x[i, j] = pml * (pml * rho_x[i, j] + dt * drho_x_dt)
 
 
 @wp.kernel
-def add_source(
-    p: wp.array2d(dtype=float),
+def update_density_y_staggered(
+    rho_y: wp.array2d(dtype=float),
+    vy: wp.array2d(dtype=float),
+    pml_rho_x: wp.array(dtype=float),
+    pml_rho_y: wp.array(dtype=float),
+    dt: float,
+    rho0_over_dy: float,
+    nx: int,
+    ny: int,
+):
+    """Update y-component of split density with jwave-style exponential PML.
+
+    Mass conservation (y-component): drho_y/dt = -rho0 * dvy/dy
+    dvy/dy at cell center = (vy[i,j+1] - vy[i,j]) / dy
+    """
+    i, j = wp.tid()
+
+    if i >= nx or j >= ny:
+        return
+
+    # Skip boundaries (need vy[i,j+1])
+    if j >= ny - 1:
+        return
+
+    # Velocity divergence (y-component only)
+    dvy_dy = vy[i, j + 1] - vy[i, j]
+
+    # Density time derivative: drho_y/dt = -rho0 * dvy/dy
+    drho_y_dt = -rho0_over_dy * dvy_dy
+
+    # Combined PML (product of x and y components)
+    pml = pml_rho_x[i] * pml_rho_y[j]
+
+    # Exponential PML update (jwave-style)
+    rho_y[i, j] = pml * (pml * rho_y[i, j] + dt * drho_y_dt)
+
+
+@wp.kernel
+def add_mass_source_to_density(
+    rho_x: wp.array2d(dtype=float),
+    rho_y: wp.array2d(dtype=float),
+    pml_rho_x: wp.array(dtype=float),
+    pml_rho_y: wp.array(dtype=float),
     source_i: int,
     source_j: int,
     source_amplitude: float,
+    dt: float,
 ):
-    """Add point source to pressure field.
+    """Add mass source to density fields (jwave-style).
 
-    The source amplitude should already include dt and spatial scaling.
+    The source is added to both rho_x and rho_y components equally (divided by ndim=2).
+    Source scaling follows jwave: 2 * source / (c0 * ndim * dx)
+    The source_amplitude should already include this scaling.
     """
     i, j = wp.tid()
 
     if i == source_i and j == source_j:
-        p[i, j] = p[i, j] + source_amplitude
+        # Apply PML to source contribution (same as density update)
+        pml = pml_rho_x[i] * pml_rho_y[j]
+        # Add source to both components (each gets half for 2D)
+        source_contribution = pml * pml * dt * source_amplitude
+        rho_x[i, j] = rho_x[i, j] + source_contribution
+        rho_y[i, j] = rho_y[i, j] + source_contribution
+
+
+@wp.kernel
+def compute_pressure_from_density(
+    p: wp.array2d(dtype=float),
+    rho_x: wp.array2d(dtype=float),
+    rho_y: wp.array2d(dtype=float),
+    c_squared: float,
+    nx: int,
+    ny: int,
+):
+    """Compute pressure from split density: p = c0² * (rho_x + rho_y)."""
+    i, j = wp.tid()
+
+    if i >= nx or j >= ny:
+        return
+
+    p[i, j] = c_squared * (rho_x[i, j] + rho_y[i, j])
 
 
 def solve_wave_equation_2d(
@@ -300,12 +360,14 @@ def solve_wave_equation_2d(
     p = wp.zeros((nx_total, ny_total), dtype=float)
     vx = wp.zeros((nx_total, ny_total), dtype=float)
     vy = wp.zeros((nx_total, ny_total), dtype=float)
+    rho_x = wp.zeros((nx_total, ny_total), dtype=float)  # Split density x-component
+    rho_y = wp.zeros((nx_total, ny_total), dtype=float)  # Split density y-component
 
     # Precompute constants
     inv_rho_dx = inv_rho / dx
     inv_rho_dy = inv_rho / dy
-    c_sq_rho_dx = c_squared_rho / dx
-    c_sq_rho_dy = c_squared_rho / dy
+    rho0_over_dx = DENSITY / dx  # For density update
+    rho0_over_dy = DENSITY / dy
 
     # Node positions for physical domain
     x_coords = np.linspace(0.0, 1.0, num_physical_points)
@@ -325,14 +387,16 @@ def solve_wave_equation_2d(
     solution_values[current_output_index, :] = p_physical.ravel()
     current_output_index += 1
 
-    # Source scaling factor for point source
-    # For FD staggered grid, scale by dt/dx to match jwave's spectral normalization
-    source_scale = dt / dx
+    # Mass source scaling factor (jwave-style)
+    # jwave uses: 2 * source / (c0 * ndim * dx)
+    # For 2D (ndim=2): 2 * source / (c0 * 2 * dx) = source / (c0 * dx)
+    ndim = 2
+    mass_source_scale = 2.0 / (WAVE_SPEED * ndim * dx)
 
     # Time-stepping loop
     for step in range(num_time_steps):
         current_time = step * dt
-        source_amplitude = ricker_wavelet_numpy(current_time) * source_scale
+        source_amplitude = ricker_wavelet_numpy(current_time) * mass_source_scale
 
         # Step 1: Update velocities from pressure gradient
         wp.launch(
@@ -346,18 +410,30 @@ def solve_wave_equation_2d(
             inputs=[vy, p, pml_vy_y, dt, inv_rho_dy, nx_total, ny_total],
         )
 
-        # Step 2: Update pressure from velocity divergence
+        # Step 2: Update split density from velocity divergence
         wp.launch(
-            update_pressure_staggered,
+            update_density_x_staggered,
             dim=(nx_total, ny_total),
-            inputs=[p, vx, vy, pml_p_x, pml_p_y, dt, c_sq_rho_dx, c_sq_rho_dy, nx_total, ny_total],
+            inputs=[rho_x, vx, pml_p_x, pml_p_y, dt, rho0_over_dx, nx_total, ny_total],
+        )
+        wp.launch(
+            update_density_y_staggered,
+            dim=(nx_total, ny_total),
+            inputs=[rho_y, vy, pml_p_x, pml_p_y, dt, rho0_over_dy, nx_total, ny_total],
         )
 
-        # Step 3: Add source
+        # Step 3: Add mass source to density
         wp.launch(
-            add_source,
+            add_mass_source_to_density,
             dim=(nx_total, ny_total),
-            inputs=[p, source_i, source_j, source_amplitude],
+            inputs=[rho_x, rho_y, pml_p_x, pml_p_y, source_i, source_j, source_amplitude, dt],
+        )
+
+        # Step 4: Compute pressure from density
+        wp.launch(
+            compute_pressure_from_density,
+            dim=(nx_total, ny_total),
+            inputs=[p, rho_x, rho_y, c_squared, nx_total, ny_total],
         )
 
         # Store output

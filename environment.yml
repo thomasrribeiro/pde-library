@@ -1,4 +1,4 @@
-name: pde-benchmarks
+name: pde-library
 channels:
   - conda-forge
 dependencies:

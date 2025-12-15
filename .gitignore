@@ -1,6 +1,42 @@
+# Python
 __pycache__/
-**/results/
 *.pyc
+*.pyo
+*.so
 .venv/
 *.egg-info/
+.Python
+
+# Jupyter
 .ipynb_checkpoints/
+
+# Results and outputs
+**/results/
+
+# Build and distribution
+dist/
+build/
+*.egg
+
+# Testing
+.pytest_cache/
+.tox/
+.coverage
+*.cover
+htmlcov/
+
+# Node/Web
+node_modules/
+
+# IDEs and editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# macOS
+.DS_Store
+
+# AI assistants
+.claude/

@@ -178,12 +178,14 @@ def solve_wave_equation_2d(
     p = np.zeros((nx_total, ny_total))
     vx = np.zeros((nx_total, ny_total))
     vy = np.zeros((nx_total, ny_total))
+    rho_x = np.zeros((nx_total, ny_total))  # Split density x-component
+    rho_y = np.zeros((nx_total, ny_total))  # Split density y-component
 
     # Precompute constants
     inv_rho_dx = inv_rho / dx
     inv_rho_dy = inv_rho / dy
-    c_sq_rho_dx = c_squared_rho / dx
-    c_sq_rho_dy = c_squared_rho / dy
+    rho0_over_dx = DENSITY / dx  # For density update
+    rho0_over_dy = DENSITY / dy
 
     # Node positions for physical domain output
     x_coords = np.linspace(0.0, 1.0, num_physical_points)
@@ -202,13 +204,16 @@ def solve_wave_equation_2d(
     solution_values[current_output_index, :] = p_physical.ravel()
     current_output_index += 1
 
-    # Source scaling factor for point source (matches warp_solver.py)
-    source_scale = dt / dx
+    # Mass source scaling factor (jwave-style)
+    # jwave uses: 2 * source / (c0 * ndim * dx)
+    # For 2D (ndim=2): 2 * source / (c0 * 2 * dx) = source / (c0 * dx)
+    ndim = 2
+    mass_source_scale = 2.0 / (WAVE_SPEED * ndim * dx)
 
     # Time-stepping loop
     for step in range(num_time_steps):
         current_time = step * dt
-        source_amplitude = ricker_wavelet(current_time) * source_scale
+        source_amplitude = ricker_wavelet(current_time) * mass_source_scale
 
         # Step 1: Update vx (x-velocity on staggered grid) with jwave-style exponential PML
         # vx[i,j] is located at (i-0.5, j) - between p[i-1,j] and p[i,j]
@@ -238,27 +243,41 @@ def solve_wave_equation_2d(
                 pml = pml_vy_y[j]
                 vy[i, j] = pml * (pml * vy[i, j] + dt * dvy_dt)
 
-        # Step 3: Update pressure with jwave-style exponential PML
-        # p[i,j] is at cell center
-        # Divergence: div(v) = (vx[i+1,j] - vx[i,j])/dx + (vy[i,j+1] - vy[i,j])/dy
+        # Step 3: Update split density from velocity divergence
         for i in range(nx_total - 1):
-            for j in range(ny_total - 1):
-                # Divergence using staggered velocities
+            for j in range(ny_total):
+                # x-component: drho_x/dt = -rho0 * dvx/dx
                 dvx_dx = vx[i + 1, j] - vx[i, j]
+                drho_x_dt = -rho0_over_dx * dvx_dx
+
+                # Combined PML
+                pml = pml_p_x[i] * pml_p_y[j] if j < ny_total else pml_p_x[i]
+
+                # Exponential PML update
+                rho_x[i, j] = pml * (pml * rho_x[i, j] + dt * drho_x_dt)
+
+        for i in range(nx_total):
+            for j in range(ny_total - 1):
+                # y-component: drho_y/dt = -rho0 * dvy/dy
                 dvy_dy = vy[i, j + 1] - vy[i, j]
+                drho_y_dt = -rho0_over_dy * dvy_dy
 
-                # Pressure time derivative: dp/dt = -c²ρ * div(v)
-                div_v = c_sq_rho_dx * dvx_dx + c_sq_rho_dy * dvy_dy
-                dp_dt = -div_v
-
-                # Combined PML (product of x and y components)
+                # Combined PML
                 pml = pml_p_x[i] * pml_p_y[j]
 
-                # Exponential PML update (jwave-style)
-                p[i, j] = pml * (pml * p[i, j] + dt * dp_dt)
+                # Exponential PML update
+                rho_y[i, j] = pml * (pml * rho_y[i, j] + dt * drho_y_dt)
 
-        # Step 4: Add source
-        p[source_i, source_j] += source_amplitude
+        # Step 4: Add mass source to density (jwave-style)
+        pml_source = pml_p_x[source_i] * pml_p_y[source_j]
+        source_contribution = pml_source * pml_source * dt * source_amplitude
+        rho_x[source_i, source_j] += source_contribution
+        rho_y[source_i, source_j] += source_contribution
+
+        # Step 5: Compute pressure from density: p = c0² * (rho_x + rho_y)
+        for i in range(nx_total):
+            for j in range(ny_total):
+                p[i, j] = c_squared * (rho_x[i, j] + rho_y[i, j])
 
         # Store output
         simulation_step_number = step + 1

@@ -1,29 +1,86 @@
-# PDE Benchmark
+# PDE Library
 
-Benchmarking framework for comparing PDE solvers against analytical solutions.
+Benchmarking framework for comparing PDE solvers.
 
-## Setup
+## Prerequisites
+
+- [Conda](https://docs.conda.io/en/latest/miniconda.html)
+- macOS, Linux, or Windows with WSL
+
+## Installation
+
+### 1. Clone the repository
 
 ```bash
-# Create conda environment from environment.yml
-conda env create -f environment.yml
+git clone https://github.com/yourusername/pde-library.git
+cd pde-library
+```
 
-# Install the package in editable mode
-conda activate pde-benchmarks
+### 2. Create the conda environment
+
+```bash
+conda env create -f environment.yml
+```
+
+This creates an environment named `pde-library` with:
+- Python 3.13
+- FEniCS DOLFINx (finite element library)
+- NVIDIA Warp (GPU-accelerated simulation)
+- NumPy, SciPy, Matplotlib, PyVista
+
+### 3. Activate and install the CLI
+
+```bash
+# Activate the environment
+conda activate pde-library
+
+# Install the pde CLI tool in editable mode
 pip install -e .
 
-# Quick activation (alternative)
+# Verify installation
+pde list
+```
+
+### Quick activation (after initial setup)
+
+```bash
+# From the project directory
 source activate.sh
 ```
 
 <details>
-<summary>Manual setup (if needed)</summary>
+<summary>Manual setup (alternative)</summary>
+
+If `environment.yml` doesn't work, create the environment manually:
 
 ```bash
-conda create -n pde-benchmarks python=3.13 fenics-dolfinx mpich pyvista numpy matplotlib scipy -c conda-forge
-conda activate pde-benchmarks
+conda create -n pde-library python=3.13 fenics-dolfinx mpich pyvista numpy matplotlib scipy -c conda-forge
+conda activate pde-library
 pip install warp-lang
 pip install -e .
+```
+</details>
+
+<details>
+<summary>Troubleshooting</summary>
+
+**`ModuleNotFoundError: No module named 'pde_cli'`**
+
+The CLI isn't installed. Run:
+```bash
+conda activate pde-library
+pip install -e .
+```
+
+**`conda: command not found`**
+
+Install [Miniconda](https://docs.conda.io/en/latest/miniconda.html) or [Anaconda](https://www.anaconda.com/download).
+
+**DOLFINx import errors on macOS**
+
+Ensure you're using the conda environment (not system Python):
+```bash
+which python  # Should show .../miniconda3/envs/pde-library/bin/python
 ```
 </details>
 
@@ -76,7 +133,7 @@ pde plot path/to/solver1.py path/to/solver2.py --resolution 32 --show
 ## Project Structure
 
 ```
-pde-benchmark/
+pde-library/
 ├── pde_cli.py             # CLI entry point
 ├── README.md              # This file
 ├── CLAUDE.md              # Codebase guide and coding standards

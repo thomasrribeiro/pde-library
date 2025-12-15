@@ -1,4 +1,4 @@
-# CLAUDE.md - PDE Benchmark Codebase Guide
+# CLAUDE.md - PDE Library Codebase Guide
 
 ## Overview
 
@@ -7,7 +7,7 @@ This codebase benchmarks PDE solvers against analytical solutions for various ph
 ## Project Structure
 
 ```
-pde-benchmark/
+pde-library/
 ├── pde_cli.py             # CLI entry point
 ├── CLAUDE.md              # This file - codebase guide and coding standards
 ├── README.md              # User-facing documentation
@@ -18,44 +18,63 @@ pde-benchmark/
 │   ├── results.py         # Results caching utilities
 │   └── visualization.py   # Matplotlib-based visualizations
 │
-└── benchmarks/
-    ├── poisson/_2d/       # 2D Poisson equation (static)
-    │   ├── warp.py        # Warp FEM solver
-    │   └── analytical.py  # Analytical solution
+├── web/                   # Web visualization app (GitHub Pages)
+│   ├── index.html         # Main page
+│   ├── style.css          # Styles
+│   ├── vite.config.js     # Vite build config
+│   └── src/               # JavaScript source
+│
+├── scripts/               # Utility scripts
+│   └── export_web_data.py # Export solver results to JSON for web app
+│
+└── benchmarks/            # PDE benchmarks organized by equation/BC/dimension
+    ├── poisson/
+    │   └── dirichlet/_2d/           # Homogeneous Dirichlet BCs
+    │       ├── warp_solver.py       # Warp FEM solver
+    │       ├── dolfinx_solver.py    # DOLFINx FEM solver
+    │       └── analytical_solver.py # Analytical solution
     │
-    ├── laplace/_2d/       # 2D Laplace equation (static)
-    │   ├── warp.py        # Warp FEM solver
-    │   └── analytical.py  # Analytical solution
+    ├── laplace/
+    │   └── dirichlet/_2d/           # Non-homogeneous Dirichlet BCs
+    │       ├── warp_solver.py
+    │       ├── dolfinx_solver.py
+    │       └── analytical_solver.py
     │
-    ├── helmholtz/_2d/     # 2D Helmholtz equation (static)
-    │   ├── warp.py        # Warp FEM solver
-    │   └── analytical.py  # Analytical solution
+    ├── helmholtz/
+    │   └── mixed/_2d/               # Dirichlet + Neumann BCs
+    │       ├── warp_solver.py
+    │       ├── dolfinx_solver.py
+    │       └── analytical_solver.py
     │
-    ├── heat/_2d/          # 2D Heat/diffusion equation (time-dependent)
-    │   ├── warp.py        # Warp FEM solver (backward Euler)
-    │   ├── dolfinx.py     # DOLFINx FEM solver (backward Euler)
-    │   └── analytical.py  # Analytical solution (Fourier series)
+    ├── diffusion/
+    │   └── dirichlet/_2d/           # Homogeneous Dirichlet BCs (heat equation)
+    │       ├── warp_solver.py       # Backward Euler
+    │       ├── dolfinx_solver.py    # Backward Euler
+    │       └── analytical_solver.py # Fourier series
     │
-    ├── advection/_2d/     # 2D Linear advection equation (time-dependent)
-    │   ├── warp.py        # Warp FEM solver (semi-Lagrangian)
-    │   ├── dolfinx.py     # DOLFINx FEM solver (SUPG stabilization)
-    │   └── analytical.py  # Analytical solution (translated Gaussian)
+    ├── advection/
+    │   └── inflow_outflow/_2d/      # Inflow Dirichlet, Outflow natural
+    │       ├── warp_solver.py       # Semi-Lagrangian
+    │       ├── dolfinx_solver.py    # SUPG stabilization
+    │       └── analytical_solver.py # Translated Gaussian
     │
-    ├── convection_diffusion/_2d/  # 2D Convection-diffusion equation (time-dependent)
-    │   ├── warp.py        # Warp FEM solver (semi-Lagrangian + implicit diffusion)
-    │   ├── dolfinx.py     # DOLFINx FEM solver (SUPG + diffusion)
-    │   └── analytical.py  # Analytical solution (spreading translated Gaussian)
+    ├── convection_diffusion/
+    │   └── neumann/_2d/             # Homogeneous Neumann BCs
+    │       ├── warp_solver.py       # Semi-Lagrangian + implicit diffusion
+    │       ├── dolfinx_solver.py    # SUPG + diffusion
+    │       └── analytical_solver.py # Spreading translated Gaussian
     │
-    └── wave/              # 2D Wave equation (time-dependent, second-order hyperbolic)
-        ├── manufactured/_2d/  # Standing wave with Neumann boundaries
-        │   ├── warp.py        # Warp FEM solver (Newmark-beta)
-        │   ├── dolfinx.py     # DOLFINx FEM solver (Newmark-beta)
-        │   └── analytical.py  # Analytical solution (exact standing wave)
+    └── wave/
+        ├── periodic/_2d/            # Neumann BCs (standing wave)
+        │   ├── warp_solver.py       # Newmark-beta
+        │   ├── dolfinx_solver.py    # Newmark-beta
+        │   └── analytical_solver.py # Exact standing wave
         │
-        └── ricker/_2d/        # Point source with absorbing boundaries
-            ├── warp.py        # Warp FEM solver (Newmark-beta + damping sponge)
-            ├── dolfinx.py     # DOLFINx FEM solver (Newmark-beta + damping sponge)
-            └── analytical.py  # Semi-analytical (Green's function convolution)
+        └── pml/_2d/                 # Absorbing boundaries (damping sponge)
+            ├── warp_solver.py       # Newmark-beta + damping
+            ├── dolfinx_solver.py    # Newmark-beta + damping
+            ├── jwave_solver.py      # jWave acoustics solver
+            └── analytical_solver.py # Green's function convolution
 ```
 
 ## CLI Usage
@@ -67,28 +86,28 @@ The primary interface is the `pde` command (after activating the conda environme
 pde list
 
 # Run a solver at multiple resolutions
-pde run benchmarks/poisson/_2d/warp.py --resolution 8 16 32 64
+pde run benchmarks/poisson/dirichlet/_2d/warp_solver.py --resolution 8 16 32 64
 
 # Run multiple solvers
-pde run benchmarks/poisson/_2d/warp.py benchmarks/poisson/_2d/analytical.py --resolution 8 16 32 64
+pde run benchmarks/poisson/dirichlet/_2d/warp_solver.py benchmarks/poisson/dirichlet/_2d/analytical_solver.py --resolution 8 16 32 64
 
 # Compare solvers (all pairs) - prints error metrics
-pde compare benchmarks/poisson/_2d/warp.py benchmarks/poisson/_2d/analytical.py --resolution 32
+pde compare benchmarks/poisson/dirichlet/_2d/warp_solver.py benchmarks/poisson/dirichlet/_2d/analytical_solver.py --resolution 32
 
 # Plot solutions side by side
-pde plot benchmarks/poisson/_2d/warp.py benchmarks/poisson/_2d/analytical.py --resolution 32
+pde plot benchmarks/poisson/dirichlet/_2d/warp_solver.py benchmarks/poisson/dirichlet/_2d/analytical_solver.py --resolution 32
 
 # Plot with pairwise comparisons and error visualization
-pde plot benchmarks/poisson/_2d/warp.py benchmarks/poisson/_2d/analytical.py --resolution 32 --compare
+pde plot benchmarks/poisson/dirichlet/_2d/warp_solver.py benchmarks/poisson/dirichlet/_2d/analytical_solver.py --resolution 32 --compare
 
 # Plot with convergence analysis (requires 2+ resolutions)
-pde plot benchmarks/poisson/_2d/warp.py benchmarks/poisson/_2d/analytical.py --resolution 8 16 32 64 --convergence
+pde plot benchmarks/poisson/dirichlet/_2d/warp_solver.py benchmarks/poisson/dirichlet/_2d/analytical_solver.py --resolution 8 16 32 64 --convergence
 
 # Show plots interactively
-pde plot benchmarks/poisson/_2d/warp.py benchmarks/poisson/_2d/analytical.py --resolution 32 --show
+pde plot benchmarks/poisson/dirichlet/_2d/warp_solver.py benchmarks/poisson/dirichlet/_2d/analytical_solver.py --resolution 32 --show
 
-# Generate animated GIF for time-dependent PDEs (heat equation)
-pde plot benchmarks/heat/_2d/warp.py benchmarks/heat/_2d/analytical.py --resolution 32 --video
+# Generate animated GIF for time-dependent PDEs (diffusion equation)
+pde plot benchmarks/diffusion/dirichlet/_2d/warp_solver.py benchmarks/diffusion/dirichlet/_2d/analytical_solver.py --resolution 32 --video
 ```
 
 ### CLI Flags Reference
@@ -413,33 +432,33 @@ Expected spatial convergence rate: ~2.0 for linear elements.
 
 ## Key Components
 
-### benchmarks/poisson/_2d/analytical.py
+### benchmarks/poisson/dirichlet/_2d/analytical_solver.py
 Manufactured solution functions:
 - `compute_analytical_solution(x_coordinates, y_coordinates)` - Returns sin(πx)sin(πy)
 - `compute_source_term(x_coordinates, y_coordinates)` - Returns 2π²sin(πx)sin(πy)
 - `compute_analytical_solution_at_points(points)` - Evaluate at (N,2) array
 - `solve(grid_resolution)` - Unified interface for CLI
 
-### benchmarks/poisson/_2d/warp.py
+### benchmarks/poisson/dirichlet/_2d/warp_solver.py
 Warp FEM Poisson solver:
 - `solve_poisson_2d(grid_resolution, polynomial_degree, quiet)` - Main entry point
 - `solve(grid_resolution)` - Unified interface for CLI
 - Returns `(solution_values, node_positions)` as numpy arrays
 - Uses Grid2D geometry, Lagrange elements, CG solver
 
-### benchmarks/laplace/_2d/analytical.py
+### benchmarks/laplace/dirichlet/_2d/analytical_solver.py
 Laplace analytical solution:
 - `compute_analytical_solution(x_coordinates, y_coordinates)` - Returns sin(πx)·sinh(πy)/sinh(π)
 - `compute_analytical_solution_at_points(points)` - Evaluate at (N,2) array
 - `compute_top_boundary_values(x_coordinates)` - Returns sin(πx) for top boundary
 - `solve(grid_resolution)` - Unified interface for CLI
 
-### benchmarks/laplace/_2d/warp.py
+### benchmarks/laplace/dirichlet/_2d/warp_solver.py
 Warp FEM Laplace solver with non-homogeneous Dirichlet BCs:
 - `solve_laplace_2d(grid_resolution, polynomial_degree, quiet)` - Main entry point
 - `solve(grid_resolution)` - Unified interface for CLI
 
-### benchmarks/helmholtz/_2d/analytical.py
+### benchmarks/helmholtz/mixed/_2d/analytical_solver.py
 Plane wave analytical solution:
 - `compute_phase_at_coordinates(x, y)` - Computes φ = k₀(cos(θ)x + sin(θ)y)
 - `compute_analytical_solution(x, y)` - Returns A·cos(φ)
@@ -448,7 +467,7 @@ Plane wave analytical solution:
 - `compute_neumann_boundary_flux(x, y, nx, ny)` - Returns g = -∇u · n
 - `solve(grid_resolution)` - Unified interface for CLI
 
-### benchmarks/helmholtz/_2d/warp.py
+### benchmarks/helmholtz/mixed/_2d/warp_solver.py
 Warp FEM Helmholtz solver with mixed BCs (Dirichlet on x=0, y=0; Neumann on x=1, y=1):
 - `solve_helmholtz_2d(grid_resolution, polynomial_degree, quiet)` - Main entry point
 - `solve(grid_resolution)` - Unified interface for CLI
@@ -485,15 +504,17 @@ Visualization utilities:
 
 To add a new solver (e.g., FEniCS):
 
-1. Create `fenics.py` in the benchmark directory
+1. Create `fenics_solver.py` in the benchmark directory
 2. Implement the `solve(grid_resolution)` function
-3. Use the CLI: `pde run benchmarks/poisson/_2d/fenics.py --resolution 32`
+3. Use the CLI: `pde run benchmarks/poisson/dirichlet/_2d/fenics_solver.py --resolution 32`
 
 ## Adding New Benchmarks
 
-1. Create a new folder under `benchmarks/<domain>/_<dimension>/`
-2. Add `warp.py` with procedural Warp FEM solver implementing `solve()`
-3. Add `analytical.py` with closed-form solution implementing `solve()`
+1. Create a new folder under `benchmarks/<equation>/<boundary_condition>/_<dimension>/`
+   - Example: `benchmarks/poisson/periodic/_2d/` for periodic Poisson
+2. Add `warp_solver.py` with procedural Warp FEM solver implementing `solve()`
+3. Add `analytical_solver.py` with closed-form solution implementing `solve()`
+4. Optionally add `dolfinx_solver.py` for DOLFINx implementation
 
 ## Results Caching
 
@@ -508,8 +529,8 @@ Use `--force` to recompute cached results.
 Install with conda:
 
 ```bash
-conda create -n pde-benchmarks python=3.13 fenics-dolfinx mpich pyvista numpy matplotlib scipy -c conda-forge
-conda activate pde-benchmarks
+conda create -n pde-library python=3.13 fenics-dolfinx mpich pyvista numpy matplotlib scipy -c conda-forge
+conda activate pde-library
 pip install warp-lang
 pip install -e .
 ```
@@ -530,7 +551,7 @@ Before running any Python scripts or commands:
 
 ```bash
 # Activate the conda environment (from project root)
-conda activate pde-benchmarks
+conda activate pde-library
 
 # Run Python files
 python <script.py>
