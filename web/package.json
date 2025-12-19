@@ -11,6 +11,7 @@
     "vite": "^5.0.0"
   },
   "dependencies": {
+    "@kitware/vtk.js": "^34.16.2",
     "jszip": "^3.10.1",
     "npyjs": "^1.0.4",
     "plotly.js-dist-min": "^2.27.0"

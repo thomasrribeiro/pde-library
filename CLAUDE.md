@@ -115,14 +115,22 @@ pde plot benchmarks/diffusion/dirichlet/_2d/warp_solver.py benchmarks/diffusion/
 | Flag | Commands | Description |
 |------|----------|-------------|
 | `--resolution, -r` | all | Grid resolution(s) to use |
-| `--output, -o` | all | Output directory (default: `results`) |
 | `--force, -f` | all | **Force recomputation, ignoring cached results** |
+| `--save, -s` | all | Save to `results/` (for GitHub). Default saves to `tmp/` (local dev, gitignored) |
 | `--compare, -c` | plot | Show pairwise comparisons with error visualization |
 | `--convergence` | plot | Generate convergence plot (requires 2+ resolutions) |
 | `--show` | plot | Display plots interactively |
 | `--video` | plot | Generate animated GIF (time-dependent PDEs only) |
 
 **IMPORTANT:** Always use `--force` when testing code changes to ensure fresh results are computed instead of using stale cached data.
+
+### Data Storage
+
+Results are stored in the benchmark directory:
+- `tmp/` - Default location for local development (gitignored, not committed)
+- `results/` - Used with `--save` flag (committed to GitHub, used by web app)
+
+The web visualization fetches data from `results/` via GitHub raw URLs in production, or from local files in development mode.
 
 ## Coding Standards
 
@@ -518,9 +526,17 @@ To add a new solver (e.g., FEniCS):
 
 ## Results Caching
 
-Results are automatically cached to `<benchmark>/results/` as `.npz` files:
-- `warp_res032.npz` - Warp solution at resolution 32
-- `analytical_res032.npz` - Analytical solution at resolution 32
+Results are automatically cached as `.npz` files in the benchmark directory:
+
+**Local development (default):** `<benchmark>/tmp/`
+- `warp_solver_res032.npz` - Warp solution at resolution 32
+- `analytical_solver_res032.npz` - Analytical solution at resolution 32
+- Gitignored, not committed
+
+**For GitHub/web app (`--save` flag):** `<benchmark>/results/`
+- Same file format as tmp/
+- Committed to repository
+- Web app fetches from GitHub raw URLs
 
 Use `--force` to recompute cached results.
 

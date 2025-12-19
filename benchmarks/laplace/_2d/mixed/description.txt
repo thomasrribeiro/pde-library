@@ -1,0 +1,1 @@
+A square whose top edge is heated according to sin(πx), whose bottom edge is thermally insulated (no heat escapes), and whose left and right edges are held at a temperature of 0.

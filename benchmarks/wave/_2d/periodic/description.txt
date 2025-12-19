@@ -1,0 +1,1 @@
+A standing wave pattern on a square membrane, like a vibrating drum head. The wave oscillates up and down over time while the nodal lines (where displacement is zero) remain fixed. The boundaries are reflective (Neumann), causing incoming waves to bounce back and form the standing pattern.

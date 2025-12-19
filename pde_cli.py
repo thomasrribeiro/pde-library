@@ -83,6 +83,21 @@ def load_solver_module(solver_path: Path):
     return module
 
 
+def get_output_dir_for_solver(solver_path_string: str, save: bool = False) -> Path:
+    """Get the output directory for a solver.
+
+    Args:
+        solver_path_string: Path to solver file
+        save: If True, use results/ (for committing), otherwise tmp/ (local dev)
+
+    Returns:
+        Path to output directory in the benchmark directory
+    """
+    benchmark_dir, _ = parse_solver_path(solver_path_string)
+    subdir = "results" if save else "tmp"
+    return benchmark_dir / subdir
+
+
 def run_solver(
     solver_path_string: str,
     grid_resolution: int,
@@ -135,10 +150,11 @@ def run_solver(
 
 def cmd_run(args):
     """Handle 'pde run' command."""
-    output_dir = Path(args.output).resolve()
-    output_dir.mkdir(parents=True, exist_ok=True)
-
     for solver_path in args.solver:
+        # Determine output directory based on --save flag
+        output_dir = get_output_dir_for_solver(solver_path, save=args.save)
+        output_dir.mkdir(parents=True, exist_ok=True)
+
         for resolution in args.resolution:
             try:
                 run_solver(solver_path, resolution, output_dir, args.force)
@@ -152,9 +168,6 @@ def cmd_run(args):
 
 def cmd_compare(args):
     """Handle 'pde compare' command."""
-    output_dir = Path(args.output).resolve()
-    output_dir.mkdir(parents=True, exist_ok=True)
-
     force = args.force
 
     if len(args.solver) < 2:
@@ -172,6 +185,10 @@ def cmd_compare(args):
         except (FileNotFoundError, ValueError) as e:
             print(f"Error with solver: {e}")
             sys.exit(1)
+
+    # Get output directory from first solver (all solvers should be in same benchmark)
+    output_dir = get_output_dir_for_solver(solver_paths[0], save=args.save)
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"Comparing: {', '.join(solver_names)}")
     print(f"Output: {output_dir}")
@@ -258,9 +275,6 @@ def compute_convergence_rate(mesh_sizes: List[float], errors: List[float]) -> fl
 
 def cmd_plot(args):
     """Handle 'pde plot' command."""
-    output_dir = Path(args.output).resolve()
-    output_dir.mkdir(parents=True, exist_ok=True)
-
     force = args.force
 
     # Parse all solver paths
@@ -274,6 +288,10 @@ def cmd_plot(args):
         except (FileNotFoundError, ValueError) as e:
             print(f"Error with solver: {e}")
             sys.exit(1)
+
+    # Get output directory from first solver (all solvers should be in same benchmark)
+    output_dir = get_output_dir_for_solver(solver_paths[0], save=args.save)
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     # Use first resolution for solution plots
     plot_resolution = args.resolution[0]
@@ -543,16 +561,27 @@ def cmd_list(args):
         solver_names = [p.name for p in solver_paths]
         print(f"  solvers: {', '.join(solver_names)}")
 
-        # Check cached resolutions (assume all solvers in same dir share cache)
+        # Check cached resolutions in tmp/ (local dev)
+        tmp_dir = solver_paths[0].parent / "tmp"
+        tmp_resolutions = set()
+        for solver_path in solver_paths:
+            resolutions = list_cached_resolutions_for_solver(tmp_dir, solver_path.stem)
+            tmp_resolutions.update(resolutions)
+
+        if tmp_resolutions:
+            sorted_resolutions = sorted(tmp_resolutions)
+            print(f"  tmp/ (local): {sorted_resolutions}")
+
+        # Check cached resolutions in results/ (for GitHub)
         results_dir = solver_paths[0].parent / "results"
-        all_resolutions = set()
+        results_resolutions = set()
         for solver_path in solver_paths:
             resolutions = list_cached_resolutions_for_solver(results_dir, solver_path.stem)
-            all_resolutions.update(resolutions)
+            results_resolutions.update(resolutions)
 
-        if all_resolutions:
-            sorted_resolutions = sorted(all_resolutions)
-            print(f"  cached resolutions: {sorted_resolutions}")
+        if results_resolutions:
+            sorted_resolutions = sorted(results_resolutions)
+            print(f"  results/ (saved): {sorted_resolutions}")
 
         print()
 
@@ -570,16 +599,16 @@ def main():
         help="Solver file path(s) (e.g., warp.py or benchmarks/poisson/_2d/warp.py)"
     )
     run_parser.add_argument(
-        "--output", "-o", default="results",
-        help="Output directory for results (default: results)"
-    )
-    run_parser.add_argument(
         "--resolution", "-r", type=int, nargs="+", required=True,
         help="Grid resolution(s) to run"
     )
     run_parser.add_argument(
         "--force", "-f", action="store_true",
         help="Force recomputation even if cached"
+    )
+    run_parser.add_argument(
+        "--save", "-s", action="store_true",
+        help="Save to results/ (for GitHub). Default saves to tmp/ (local dev, gitignored)"
     )
 
     # compare command
@@ -589,16 +618,16 @@ def main():
         help="Solver file paths to compare (at least 2 required)"
     )
     compare_parser.add_argument(
-        "--output", "-o", default="results",
-        help="Output directory containing results (default: results)"
-    )
-    compare_parser.add_argument(
         "--resolution", "-r", type=int, nargs="+", required=True,
         help="Grid resolution(s) to compare"
     )
     compare_parser.add_argument(
         "--force", "-f", action="store_true",
         help="Force recomputation even if cached"
+    )
+    compare_parser.add_argument(
+        "--save", "-s", action="store_true",
+        help="Save to results/ (for GitHub). Default saves to tmp/ (local dev, gitignored)"
     )
 
     # plot command
@@ -610,10 +639,6 @@ def main():
     plot_parser.add_argument(
         "--resolution", "-r", type=int, nargs="+", required=True,
         help="Grid resolution(s) - first used for solution plots, all used for convergence"
-    )
-    plot_parser.add_argument(
-        "--output", "-o", default="results",
-        help="Output directory for plots (default: results)"
     )
     plot_parser.add_argument(
         "--compare", "-c", action="store_true",
@@ -634,6 +659,10 @@ def main():
     plot_parser.add_argument(
         "--video", action="store_true",
         help="Generate animated GIF of time evolution (only for time-dependent PDEs)"
+    )
+    plot_parser.add_argument(
+        "--save", "-s", action="store_true",
+        help="Save to results/ (for GitHub). Default saves to tmp/ (local dev, gitignored)"
     )
 
     # list command

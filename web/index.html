@@ -89,38 +89,38 @@
                 <div class="sidebar-content" id="interpretation-section" style="display: none;">
                     <p id="physics-interpretation"></p>
                 </div>
+
+                <!-- Controls section (shown for 3D or time-dependent PDEs) -->
+                <div class="sidebar-content" id="controls-section" style="display: none;">
+                    <h3>Controls</h3>
+                    <!-- Reset view button for 3D problems -->
+                    <div id="reset-view-control" class="control-group" style="display: none;">
+                        <button id="reset-view-btn" class="reset-view-btn">Reset View</button>
+                    </div>
+                    <!-- Z-slice slider for 3D problems -->
+                    <div id="z-slice-control" class="control-group" style="display: none;">
+                        <label class="control-label">Z-slice position</label>
+                        <div class="slider-row">
+                            <input type="range" id="z-slice-slider" class="horizontal-slider" min="0" max="100" value="100">
+                            <span id="z-slice-value" class="slider-value">1.00</span>
+                        </div>
+                    </div>
+                    <!-- Time slider for time-dependent PDEs (future use) -->
+                    <div id="time-control" class="control-group" style="display: none;">
+                        <label class="control-label">Time</label>
+                        <div class="slider-row">
+                            <input type="range" id="time-slider-sidebar" class="horizontal-slider" min="0" max="100" value="0">
+                            <span id="time-value" class="slider-value">0.00</span>
+                        </div>
+                    </div>
+                </div>
             </aside>
 
             <main class="main-content">
 
-                <!-- Three Plots -->
+                <!-- Dynamic Plots Container (populated by JavaScript) -->
                 <div class="plots-container">
-                    <div class="plot-wrapper">
-                        <div class="plot-header">
-                            <select id="plot1-solver">
-                                <option value="analytical" selected>Analytical</option>
-                                <option value="warp">Warp</option>
-                                <option value="dolfinx">DOLFINx</option>
-                            </select>
-                        </div>
-                        <div id="plot1" class="plot"></div>
-                    </div>
-                    <div class="plot-wrapper">
-                        <div class="plot-header">
-                            <select id="plot2-solver">
-                                <option value="analytical">Analytical</option>
-                                <option value="warp" selected>Warp</option>
-                                <option value="dolfinx">DOLFINx</option>
-                            </select>
-                        </div>
-                        <div id="plot2" class="plot"></div>
-                    </div>
-                    <div class="plot-wrapper">
-                        <div class="plot-header">
-                            <span class="error-label">Error</span>
-                        </div>
-                        <div id="plot3" class="plot"></div>
-                    </div>
+                    <!-- Solver plots, add button, and error plots are dynamically generated -->
                 </div>
 
                 <!-- Time Controls (hidden for static PDEs) -->

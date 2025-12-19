@@ -1,0 +1,1 @@
+A blob of dye (Gaussian concentration) being carried diagonally across a fluid by a uniform flow. The dye enters from the bottom-left corner and exits through the top-right corner, maintaining its shape as it travels since there is no diffusion—pure transport with no mixing.

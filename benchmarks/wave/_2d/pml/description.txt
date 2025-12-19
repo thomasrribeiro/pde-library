@@ -1,0 +1,1 @@
+A point source at the center emitting a Ricker wavelet pulse that radiates outward in circular wavefronts. The domain edges have absorbing sponge layers that damp incoming waves, simulating an infinite domain where waves propagate outward without reflection.

@@ -1,0 +1,1 @@
+A blob of dye being carried diagonally by a uniform flow while simultaneously spreading due to diffusion. The dye translates across the domain and spreads out over time, with no flux escaping through the boundaries. This combines the transport of advection with the mixing of diffusion.

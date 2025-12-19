@@ -1,0 +1,1 @@
+A plane wave propagating diagonally across a square domain at 45 degrees. The wave enters through the bottom and left edges (Dirichlet boundaries) and exits through the top and right edges (Neumann boundaries). The pattern shows two complete wavelengths across the domain, representing acoustic or electromagnetic wave propagation.

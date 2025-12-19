@@ -1,0 +1,1 @@
+A thin metal plate with all edges held at 0°C, heated internally by a source strongest at the center. The colors show the steady-state temperature distribution.

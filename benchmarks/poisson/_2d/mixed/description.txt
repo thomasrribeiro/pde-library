@@ -1,0 +1,1 @@
+A thin metal plate with left and right edges held at 0°C, and top and bottom edges thermally insulated. Internal heating is applied throughout. The colors show the steady-state temperature.

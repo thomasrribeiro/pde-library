@@ -370,6 +370,13 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
+    position: relative;
+}
+
+/* Position delete button absolutely so dropdown stays centered */
+.delete-solver-btn {
+    position: absolute;
+    right: 0;
 }
 
 .plot-header select {
@@ -404,14 +411,81 @@ body {
     font-size: 12px;
     font-weight: 400;
     color: var(--black);
-    /* Match the visual height of the select dropdown */
-    padding: 6px 10px;
-    display: inline-block;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    line-height: 1.4;
+}
+
+.error-label-title {
+    font-weight: 400;
+}
+
+.error-label-metrics {
+    font-size: 11px;
+    color: #666;
 }
 
 .plot {
     height: var(--sidebar-width);
     width: var(--sidebar-width);
+}
+
+.delete-solver-btn {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 16px;
+    font-weight: 400;
+    color: #999;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    padding: 0 4px;
+    line-height: 1;
+    transition: color 0.2s;
+}
+
+.delete-solver-btn:hover {
+    color: #c00;
+}
+
+/* Add solver dropdown styling */
+.add-solver-select {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    padding: 6px 10px;
+    padding-right: 26px;
+    background: rgba(255, 255, 255, 0.9);
+    border: 1px dashed #ccc;
+    border-radius: 4px;
+    cursor: pointer;
+    color: #888;
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg width='10' height='6' viewBox='0 0 10 6' xmlns='http://www.w3.org/2000/svg'%3E%3Cpolygon points='0,0 10,0 5,6' fill='%23999'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 8px center;
+    width: auto;
+    min-width: 0;
+    text-align: center;
+    text-align-last: center;
+}
+
+.add-solver-select:hover {
+    background-color: rgba(255, 255, 255, 1);
+    border-color: #999;
+    color: var(--black);
+}
+
+.add-solver-select:focus {
+    outline: none;
+    border-color: #999;
+}
+
+/* Error plot wrapper styling */
+.error-plot-wrapper {
+    /* Same as regular plot-wrapper */
 }
 
 /* Time Controls */
@@ -504,4 +578,64 @@ body {
     .time-slider {
         width: 200px;
     }
+}
+
+/* 3D Plot Styles */
+.plot-wrapper-3d {
+    width: 360px;
+}
+
+.plot-3d {
+    width: 360px;
+    height: 360px;
+}
+
+/* Sidebar Controls Section */
+.control-group {
+    margin-bottom: 12px;
+}
+
+.control-label {
+    display: block;
+    font-size: 12px;
+    color: #666;
+    margin-bottom: 6px;
+}
+
+.slider-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.horizontal-slider {
+    flex: 1;
+    cursor: pointer;
+}
+
+.slider-value {
+    font-size: 12px;
+    font-family: 'IBM Plex Mono', monospace;
+    color: var(--black);
+    min-width: 36px;
+    text-align: right;
+}
+
+/* Reset View Button */
+.reset-view-btn {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    padding: 6px 12px;
+    background: var(--white);
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    cursor: pointer;
+    color: var(--black);
+    transition: background 0.2s, border-color 0.2s;
+    width: 100%;
+}
+
+.reset-view-btn:hover {
+    background: var(--light-gray);
+    border-color: #999;
 }

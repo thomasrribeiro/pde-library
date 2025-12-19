@@ -1,0 +1,1 @@
+A square whose top edge is heated according to sin(πx) and whose remaining sides are held at a temperature of 0.

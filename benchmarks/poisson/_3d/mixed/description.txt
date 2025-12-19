@@ -1,0 +1,1 @@
+A solid metal block with all four walls held at 0°C, and ceiling and floor thermally insulated. Internal heating is applied throughout. The colors show the steady-state temperature.

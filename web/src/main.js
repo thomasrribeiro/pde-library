@@ -9,7 +9,7 @@ import {
     get_axis_values
 } from './solvers/laplace.js';
 
-import { load_solver_data } from './data/loader.js';
+import { load_solver_data, load_problem_description } from './data/loader.js';
 
 import {
     create_heatmap,
@@ -18,18 +18,252 @@ import {
     find_grid_range
 } from './visualization/plotly-heatmap.js';
 
+import {
+    create_volume_plot,
+    update_slice_position,
+    reset_camera,
+    dispose_volume_plot,
+    reshape_to_3d_grid,
+    compute_error_grid_3d,
+    compute_error_norms_3d,
+    find_grid_range_3d
+} from './visualization/vtk-volume.js';
+
+// Available solvers (order matters for default selection)
+const AVAILABLE_SOLVERS = [
+    { id: 'analytical', label: 'Analytical' },
+    { id: 'warp', label: 'Warp' },
+    { id: 'dolfinx', label: 'DOLFINx' }
+];
+
 // Application state
 const state = {
     equation: null,
     boundary_condition: null,
     dimension: null,
     resolution: 32,
-    plot1_solver: 'analytical',
-    plot2_solver: 'warp',
-    plot1_data: null,
-    plot2_data: null,
+    // Dynamic solver management
+    active_solvers: ['analytical'],  // Array of active solver IDs
+    solver_data: {},                  // Map: solver_id -> data object
+    solver_grids: {},                 // Map: solver_id -> 2D/3D grid array
+    solver_grids_3d: {},              // Map: solver_id -> 3D grid array (for 3D problems)
+    global_slice_z: 1.0,              // Global slice position for all 3D plots (default to top)
     plots_visible: false
 };
+
+/**
+ * Check if current problem is 3D.
+ */
+function is_3d_problem() {
+    return state.dimension === '3d';
+}
+
+/**
+ * Get the default solver (analytical if available, otherwise first solver).
+ */
+function get_default_solver() {
+    return 'analytical';
+}
+
+/**
+ * Get list of solvers available to add (not already active).
+ */
+function get_available_solvers_to_add() {
+    return AVAILABLE_SOLVERS.filter(s => !state.active_solvers.includes(s.id));
+}
+
+/**
+ * Get all unique pairs of active solvers for error computation.
+ * Returns array of [solver1_id, solver2_id] pairs.
+ */
+function get_solver_pairs() {
+    const pairs = [];
+    const solvers = state.active_solvers;
+    for (let i = 0; i < solvers.length; i++) {
+        for (let j = i + 1; j < solvers.length; j++) {
+            pairs.push([solvers[i], solvers[j]]);
+        }
+    }
+    return pairs;
+}
+
+/**
+ * Get solver label by ID.
+ */
+function get_solver_label(solver_id) {
+    const solver = AVAILABLE_SOLVERS.find(s => s.id === solver_id);
+    return solver ? solver.label : solver_id;
+}
+
+/**
+ * Create a solver plot wrapper element with dropdown and delete button.
+ */
+function create_solver_plot_element(solver_id) {
+    const is_3d = is_3d_problem();
+
+    const wrapper = document.createElement('div');
+    wrapper.className = is_3d ? 'plot-wrapper plot-wrapper-3d' : 'plot-wrapper';
+    wrapper.dataset.solverId = solver_id;
+
+    const header = document.createElement('div');
+    header.className = 'plot-header';
+
+    // Create dropdown
+    const select = document.createElement('select');
+    select.className = 'solver-select';
+    select.dataset.solverId = solver_id;
+
+    for (const solver of AVAILABLE_SOLVERS) {
+        const option = document.createElement('option');
+        option.value = solver.id;
+        option.textContent = solver.label;
+        option.selected = solver.id === solver_id;
+        select.appendChild(option);
+    }
+
+    // Create delete button (hidden if only one solver)
+    const delete_btn = document.createElement('button');
+    delete_btn.className = 'delete-solver-btn';
+    delete_btn.innerHTML = '×';
+    delete_btn.title = 'Remove solver';
+    delete_btn.dataset.solverId = solver_id;
+    if (state.active_solvers.length <= 1) {
+        delete_btn.style.visibility = 'hidden';
+    }
+
+    header.appendChild(select);
+    header.appendChild(delete_btn);
+
+    wrapper.appendChild(header);
+
+    // Create the plot element (same for 2D and 3D, just different class)
+    const plot = document.createElement('div');
+    plot.className = is_3d ? 'plot plot-3d' : 'plot';
+    plot.id = `plot-${solver_id}`;
+    wrapper.appendChild(plot);
+
+    return wrapper;
+}
+
+/**
+ * Create an add solver button element.
+ */
+function create_add_solver_button() {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'plot-wrapper add-solver-wrapper';
+    wrapper.id = 'add-solver-wrapper';
+
+    const header = document.createElement('div');
+    header.className = 'plot-header';
+
+    // Dropdown for selecting which solver to add
+    const select = document.createElement('select');
+    select.className = 'add-solver-select';
+    select.id = 'add-solver-select';
+
+    const placeholder = document.createElement('option');
+    placeholder.value = '';
+    placeholder.textContent = '+ Add solver';
+    placeholder.disabled = true;
+    placeholder.selected = true;
+    select.appendChild(placeholder);
+
+    const available = get_available_solvers_to_add();
+    for (const solver of available) {
+        const option = document.createElement('option');
+        option.value = solver.id;
+        option.textContent = solver.label;
+        select.appendChild(option);
+    }
+
+    header.appendChild(select);
+    wrapper.appendChild(header);
+
+    return wrapper;
+}
+
+/**
+ * Create an error plot wrapper element.
+ */
+function create_error_plot_element(solver1_id, solver2_id) {
+    const pair_id = `${solver1_id}-${solver2_id}`;
+    const is_3d = is_3d_problem();
+
+    const wrapper = document.createElement('div');
+    wrapper.className = is_3d ? 'plot-wrapper error-plot-wrapper plot-wrapper-3d' : 'plot-wrapper error-plot-wrapper';
+    wrapper.dataset.pairId = pair_id;
+
+    const header = document.createElement('div');
+    header.className = 'plot-header';
+
+    const label = document.createElement('div');
+    label.className = 'error-label';
+    label.id = `error-label-${pair_id}`;
+
+    const title = document.createElement('span');
+    title.className = 'error-label-title';
+    title.textContent = `${get_solver_label(solver1_id)} vs ${get_solver_label(solver2_id)}`;
+
+    const metrics = document.createElement('span');
+    metrics.className = 'error-label-metrics';
+    metrics.id = `error-metrics-${pair_id}`;
+    metrics.textContent = '';  // Will be filled after rendering
+
+    label.appendChild(title);
+    label.appendChild(metrics);
+    header.appendChild(label);
+
+    wrapper.appendChild(header);
+
+    // Create the plot element (same for 2D and 3D, just different class)
+    const plot = document.createElement('div');
+    plot.className = is_3d ? 'plot plot-3d' : 'plot';
+    plot.id = `error-plot-${pair_id}`;
+    wrapper.appendChild(plot);
+
+    return wrapper;
+}
+
+/**
+ * Update visibility of all delete buttons based on solver count.
+ */
+function update_delete_button_visibility() {
+    const delete_btns = document.querySelectorAll('.delete-solver-btn');
+    const show = state.active_solvers.length > 1;
+    delete_btns.forEach(btn => {
+        btn.style.visibility = show ? 'visible' : 'hidden';
+    });
+}
+
+/**
+ * Update the add solver dropdown options.
+ */
+function update_add_solver_dropdown() {
+    const select = document.getElementById('add-solver-select');
+    if (!select) return;
+
+    // Clear all options except placeholder
+    while (select.options.length > 1) {
+        select.remove(1);
+    }
+
+    const available = get_available_solvers_to_add();
+    for (const solver of available) {
+        const option = document.createElement('option');
+        option.value = solver.id;
+        option.textContent = solver.label;
+        select.appendChild(option);
+    }
+
+    // Hide the add button wrapper if no solvers available
+    const wrapper = document.getElementById('add-solver-wrapper');
+    if (wrapper) {
+        wrapper.style.display = available.length > 0 ? '' : 'none';
+    }
+
+    // Reset selection to placeholder
+    select.selectedIndex = 0;
+}
 
 // Hierarchical data structure for cascading dropdowns
 const pde_data = {
@@ -47,8 +281,7 @@ const pde_data = {
                             "Bottom edge: u = 0",
                             "Left edge: u = 0",
                             "Right edge: u = 0"
-                        ],
-                        interpretation: "A square whose top edge is heated according to sin(πx) and whose remaining sides are held at a temperature of 0."
+                        ]
                     },
                     mixed: {
                         label: "Mixed:",
@@ -57,8 +290,20 @@ const pde_data = {
                             "Bottom edge: ∂u/∂y = 0",
                             "Left edge: u = 0",
                             "Right edge: u = 0"
-                        ],
-                        interpretation: "A square whose top edge is heated according to sin(πx), whose left and right edges are held at a temperature of 0, and whose bottom edge is thermally insulated."
+                        ]
+                    }
+                }
+            },
+            "3d": {
+                label: "3D",
+                boundary_conditions: {
+                    dirichlet: {
+                        label: "Dirichlet:",
+                        conditions: [
+                            "Top face (z=1): u = sin(πx)sin(πy)",
+                            "Bottom face (z=0): u = 0",
+                            "Side faces: u = 0"
+                        ]
                     }
                 }
             }
@@ -79,8 +324,7 @@ const pde_data = {
                     }
                 }
             }
-        },
-        interpretation: "Picture a rubber sheet stretched over a square frame and pushed down by an invisible hand that presses hardest at the center. The colors show how much each point is displaced downward."
+        }
     }
 };
 
@@ -90,9 +334,9 @@ const pde_data = {
  */
 async function get_solver_data(solver) {
     if (solver === 'analytical') {
-        // Only use JS implementation for laplace with dirichlet BC
-        // Other BCs (like mixed) need to load from npz files
-        if (state.equation === 'laplace' && state.boundary_condition === 'dirichlet') {
+        // Only use JS implementation for 2D laplace with dirichlet BC
+        // 3D problems and other BCs need to load from npz files
+        if (state.equation === 'laplace' && state.boundary_condition === 'dirichlet' && state.dimension === '2d') {
             const solution = generate_laplace_solution_on_grid(state.resolution);
             return {
                 x: Array.from(solution.x),
@@ -119,68 +363,435 @@ async function get_solver_data(solver) {
 }
 
 /**
- * Render a single plot.
+ * Render a single solver plot (2D heatmap or 3D volume).
  */
-async function render_plot(plot_id, solver, data_key) {
-    const data = await get_solver_data(solver);
+async function render_solver_plot(solver_id) {
+    const data = await get_solver_data(solver_id);
 
     if (!data) {
-        console.error(`Failed to load data for solver: ${solver}`);
+        console.error(`Failed to load data for solver: ${solver_id}`);
         return null;
     }
 
-    state[data_key] = data;
+    // Store data in state
+    state.solver_data[solver_id] = data;
 
-    const values = data.values instanceof Float32Array ? data.values : new Float32Array(data.values);
-    const reshape_fn = data.column_major ? reshape_to_grid_column_major : reshape_to_grid;
-    const grid = reshape_fn(values, state.resolution);
-    const axis_values = get_axis_values(state.resolution);
+    const plot_id = `plot-${solver_id}`;
 
-    create_heatmap(plot_id, grid, axis_values, axis_values, {
-        showscale: true
-    });
+    if (is_3d_problem() && data.is_3d) {
+        // 3D volume rendering
+        const values = data.values instanceof Float64Array || data.values instanceof Float32Array
+            ? Array.from(data.values)
+            : data.values;
 
-    return grid;
-}
+        const nodes_per_dim = state.resolution + 1;
+        // Analytical solver uses Fortran order (x varies fastest)
+        // Warp and DOLFINx use their native order (z varies fastest)
+        const data_order = solver_id === 'analytical' ? 'fortran' : 'warp';
+        const grid_3d = reshape_to_3d_grid(values, nodes_per_dim, data_order);
+        state.solver_grids_3d[solver_id] = grid_3d;
 
-/**
- * Render the error plot.
- */
-function render_error_plot(grid1, grid2) {
-    if (!grid1 || !grid2) return;
+        create_volume_plot(plot_id, {
+            values: grid_3d,
+            nodes_per_dim: nodes_per_dim
+        }, {
+            slice_z: state.global_slice_z
+        });
 
-    const error_grid = compute_error_grid(grid1, grid2);
-    const axis_values = get_axis_values(state.resolution);
-    const range = find_grid_range(error_grid);
-    const norms = compute_error_norms(error_grid);
+        return grid_3d;
+    } else {
+        // 2D heatmap rendering
+        const values = data.values instanceof Float32Array ? data.values : new Float32Array(data.values);
+        const reshape_fn = data.column_major ? reshape_to_grid_column_major : reshape_to_grid;
+        const grid = reshape_fn(values, state.resolution);
+        state.solver_grids[solver_id] = grid;
 
-    create_heatmap('plot3', error_grid, axis_values, axis_values, {
-        colorscale: 'Reds',
-        showscale: true,
-        zmin: 0,
-        zmax: range.max
-    });
+        const axis_values = get_axis_values(state.resolution);
 
-    const error_label = document.querySelector('.error-label');
-    if (error_label) {
-        error_label.textContent = `Error: L² = ${norms.l2.toExponential(2)}, L∞ = ${norms.linf.toExponential(2)}`;
+        create_heatmap(plot_id, grid, axis_values, axis_values, {
+            showscale: true
+        });
+
+        return grid;
     }
 }
 
 /**
- * Render all three plots.
+ * Render an error plot for a pair of solvers (2D or 3D).
+ */
+function render_error_plot_for_pair(solver1_id, solver2_id) {
+    const pair_id = `${solver1_id}-${solver2_id}`;
+
+    if (is_3d_problem()) {
+        // 3D error visualization
+        const grid1 = state.solver_grids_3d[solver1_id];
+        const grid2 = state.solver_grids_3d[solver2_id];
+
+        if (!grid1 || !grid2) return;
+
+        const error_grid_3d = compute_error_grid_3d(grid1, grid2);
+        state.error_grids_3d = state.error_grids_3d || {};
+        state.error_grids_3d[pair_id] = error_grid_3d;
+
+        const range = find_grid_range_3d(error_grid_3d);
+        const norms = compute_error_norms_3d(error_grid_3d);
+        const nodes_per_dim = state.resolution + 1;
+
+        create_volume_plot(`error-plot-${pair_id}`, {
+            values: error_grid_3d,
+            nodes_per_dim: nodes_per_dim
+        }, {
+            colorscale: 'Reds',
+            slice_z: state.global_slice_z,
+            zmin: 0,
+            zmax: range.max
+        });
+
+        const metrics_el = document.getElementById(`error-metrics-${pair_id}`);
+        if (metrics_el) {
+            metrics_el.textContent = `L² = ${norms.l2.toExponential(2)}, L∞ = ${norms.linf.toExponential(2)}`;
+        }
+    } else {
+        // 2D error visualization
+        const grid1 = state.solver_grids[solver1_id];
+        const grid2 = state.solver_grids[solver2_id];
+
+        if (!grid1 || !grid2) return;
+
+        const error_grid = compute_error_grid(grid1, grid2);
+        const axis_values = get_axis_values(state.resolution);
+        const range = find_grid_range(error_grid);
+        const norms = compute_error_norms(error_grid);
+
+        create_heatmap(`error-plot-${pair_id}`, error_grid, axis_values, axis_values, {
+            colorscale: 'Reds',
+            showscale: true,
+            zmin: 0,
+            zmax: range.max
+        });
+
+        const metrics_el = document.getElementById(`error-metrics-${pair_id}`);
+        if (metrics_el) {
+            metrics_el.textContent = `L² = ${norms.l2.toExponential(2)}, L∞ = ${norms.linf.toExponential(2)}`;
+        }
+    }
+}
+
+/**
+ * Update sidebar controls visibility based on problem type.
+ * Only shows controls when a full problem is defined (equation, dimension, BC all selected).
+ * Shows z-slice control for 3D problems, time control for time-dependent PDEs.
+ */
+function update_sidebar_controls() {
+    const controls_section = document.getElementById('controls-section');
+    const reset_view_control = document.getElementById('reset-view-control');
+    const z_slice_control = document.getElementById('z-slice-control');
+    const time_control = document.getElementById('time-control');
+
+    // Only show controls if full problem is defined
+    const problem_defined = state.equation && state.dimension && state.boundary_condition;
+
+    // TODO: Add time-dependent detection later
+    const is_time_dependent = false;
+
+    // Show controls section only if problem is defined AND (3D or time-dependent)
+    if (problem_defined && (is_3d_problem() || is_time_dependent)) {
+        controls_section.style.display = 'block';
+    } else {
+        controls_section.style.display = 'none';
+    }
+
+    // Show reset view button and z-slice control for 3D problems
+    if (problem_defined && is_3d_problem()) {
+        reset_view_control.style.display = 'block';
+        z_slice_control.style.display = 'block';
+        // Reset slider value
+        const slider = document.getElementById('z-slice-slider');
+        const value_display = document.getElementById('z-slice-value');
+        if (slider) {
+            slider.value = String(state.global_slice_z * 100);
+        }
+        if (value_display) {
+            value_display.textContent = state.global_slice_z.toFixed(2);
+        }
+    } else {
+        reset_view_control.style.display = 'none';
+        z_slice_control.style.display = 'none';
+    }
+
+    // Show time control for time-dependent problems
+    if (problem_defined && is_time_dependent) {
+        time_control.style.display = 'block';
+    } else {
+        time_control.style.display = 'none';
+    }
+}
+
+/**
+ * Build the plots container with all solver plots, add button, and error plots.
+ */
+function build_plots_container() {
+    const container = document.querySelector('.plots-container');
+    container.innerHTML = '';
+
+    // Add solver plots
+    for (const solver_id of state.active_solvers) {
+        container.appendChild(create_solver_plot_element(solver_id));
+    }
+
+    // Add the "add solver" button if there are solvers available to add
+    if (get_available_solvers_to_add().length > 0) {
+        container.appendChild(create_add_solver_button());
+    }
+
+    // Add error plots for all pairs
+    const pairs = get_solver_pairs();
+    for (const [solver1, solver2] of pairs) {
+        container.appendChild(create_error_plot_element(solver1, solver2));
+    }
+
+    // Setup event listeners for the new elements
+    setup_dynamic_event_listeners();
+}
+
+/**
+ * Setup event listeners for dynamically created elements.
+ */
+function setup_dynamic_event_listeners() {
+    // Solver dropdown change
+    document.querySelectorAll('.solver-select').forEach(select => {
+        select.addEventListener('change', handle_solver_change);
+    });
+
+    // Delete buttons
+    document.querySelectorAll('.delete-solver-btn').forEach(btn => {
+        btn.addEventListener('click', handle_delete_solver);
+    });
+
+    // Add solver dropdown
+    const add_select = document.getElementById('add-solver-select');
+    if (add_select) {
+        add_select.addEventListener('change', handle_add_solver);
+    }
+
+}
+
+// Debounce state for z-slice slider
+let pending_z_slice_update = null;
+
+/**
+ * Perform the actual z-slice update (called via requestAnimationFrame).
+ */
+function perform_z_slice_update(z_position) {
+    // Update all solver plots with new clipping plane position
+    for (const solver_id of state.active_solvers) {
+        if (state.solver_grids_3d[solver_id]) {
+            update_slice_position(`plot-${solver_id}`, z_position);
+        }
+    }
+
+    // Update all error plots with new clipping plane position
+    const pairs = get_solver_pairs();
+    for (const [solver1, solver2] of pairs) {
+        const pair_id = `${solver1}-${solver2}`;
+        if (state.error_grids_3d?.[pair_id]) {
+            update_slice_position(`error-plot-${pair_id}`, z_position);
+        }
+    }
+
+    pending_z_slice_update = null;
+}
+
+/**
+ * Handle reset view button click - resets all 3D plots to default orientation and zoom.
+ */
+function handle_reset_view() {
+    if (!is_3d_problem()) return;
+
+    // Reset all solver plots
+    for (const solver_id of state.active_solvers) {
+        if (state.solver_grids_3d[solver_id]) {
+            reset_camera(`plot-${solver_id}`);
+        }
+    }
+
+    // Reset all error plots
+    const pairs = get_solver_pairs();
+    for (const [solver1, solver2] of pairs) {
+        const pair_id = `${solver1}-${solver2}`;
+        if (state.error_grids_3d?.[pair_id]) {
+            reset_camera(`error-plot-${pair_id}`);
+        }
+    }
+}
+
+/**
+ * Handle z-slice slider change - updates all 3D plots.
+ * Uses requestAnimationFrame debouncing to prevent excessive re-renders.
+ */
+function handle_z_slice_change(event) {
+    const slider_value = parseInt(event.target.value, 10);
+    const z_position = slider_value / 100;
+
+    // Update state immediately
+    state.global_slice_z = z_position;
+
+    // Update value display immediately (lightweight)
+    const value_display = document.getElementById('z-slice-value');
+    if (value_display) {
+        value_display.textContent = z_position.toFixed(2);
+    }
+
+    // Debounce the expensive plot updates via requestAnimationFrame
+    if (pending_z_slice_update !== null) {
+        cancelAnimationFrame(pending_z_slice_update);
+    }
+    pending_z_slice_update = requestAnimationFrame(() => perform_z_slice_update(z_position));
+}
+
+/**
+ * Handle solver dropdown change.
+ */
+async function handle_solver_change(event) {
+    const select = event.target;
+    const old_solver_id = select.dataset.solverId;
+    const new_solver_id = select.value;
+
+    if (old_solver_id === new_solver_id) return;
+
+    // Check if new solver is already active
+    if (state.active_solvers.includes(new_solver_id)) {
+        // Reset to old value
+        select.value = old_solver_id;
+        return;
+    }
+
+    // Update state
+    const index = state.active_solvers.indexOf(old_solver_id);
+    state.active_solvers[index] = new_solver_id;
+
+    // Clean up old solver data
+    delete state.solver_data[old_solver_id];
+    delete state.solver_grids[old_solver_id];
+
+    // Rebuild and re-render
+    build_plots_container();
+    await render_all_solver_plots();
+    render_all_error_plots();
+    update_add_solver_dropdown();
+}
+
+/**
+ * Handle delete solver button click.
+ */
+async function handle_delete_solver(event) {
+    const solver_id = event.target.dataset.solverId;
+
+    // Don't delete if only one solver
+    if (state.active_solvers.length <= 1) return;
+
+    // Remove from state
+    const index = state.active_solvers.indexOf(solver_id);
+    if (index > -1) {
+        state.active_solvers.splice(index, 1);
+    }
+
+    // Clean up data
+    delete state.solver_data[solver_id];
+    delete state.solver_grids[solver_id];
+
+    // Rebuild and re-render
+    build_plots_container();
+    await render_all_solver_plots();
+    render_all_error_plots();
+    update_delete_button_visibility();
+    update_add_solver_dropdown();
+}
+
+/**
+ * Handle add solver dropdown selection.
+ */
+async function handle_add_solver(event) {
+    const solver_id = event.target.value;
+    if (!solver_id) return;
+
+    // Add to active solvers
+    state.active_solvers.push(solver_id);
+
+    // Rebuild and re-render
+    build_plots_container();
+    await render_all_solver_plots();
+    render_all_error_plots();
+    update_delete_button_visibility();
+    update_add_solver_dropdown();
+}
+
+/**
+ * Render all active solver plots.
+ */
+async function render_all_solver_plots() {
+    const render_promises = state.active_solvers.map(solver_id => render_solver_plot(solver_id));
+    await Promise.all(render_promises);
+}
+
+/**
+ * Render all error plots for solver pairs.
+ */
+function render_all_error_plots() {
+    const pairs = get_solver_pairs();
+    for (const [solver1, solver2] of pairs) {
+        render_error_plot_for_pair(solver1, solver2);
+    }
+}
+
+/**
+ * Dispose all VTK 3D volume plots to free GPU memory.
+ * (2D plots use Plotly which handles its own cleanup)
+ */
+function dispose_all_vtk_plots() {
+    // Only dispose 3D VTK plots
+    if (!is_3d_problem()) return;
+
+    // Dispose solver plots
+    for (const solver_id of state.active_solvers) {
+        dispose_volume_plot(`plot-${solver_id}`);
+    }
+
+    // Dispose error plots
+    const pairs = get_solver_pairs();
+    for (const [solver1, solver2] of pairs) {
+        const pair_id = `${solver1}-${solver2}`;
+        dispose_volume_plot(`error-plot-${pair_id}`);
+    }
+}
+
+/**
+ * Render all plots (entry point after selections are made).
  */
 async function render_all_plots() {
     if (!state.equation || !state.boundary_condition || !state.dimension) {
         return;
     }
 
-    const [grid1, grid2] = await Promise.all([
-        render_plot('plot1', state.plot1_solver, 'plot1_data'),
-        render_plot('plot2', state.plot2_solver, 'plot2_data')
-    ]);
+    // Dispose existing VTK plots before clearing data (frees GPU memory)
+    dispose_all_vtk_plots();
 
-    render_error_plot(grid1, grid2);
+    // Clear old data
+    state.solver_data = {};
+    state.solver_grids = {};
+    state.solver_grids_3d = {};
+    state.error_grids_3d = {};
+    state.global_slice_z = 1.0;
+
+    // Update sidebar controls visibility
+    update_sidebar_controls();
+
+    // Build DOM structure
+    build_plots_container();
+
+    // Render all plots
+    await render_all_solver_plots();
+    render_all_error_plots();
 
     if (!state.plots_visible) {
         document.querySelector('.plots-container').style.display = 'flex';
@@ -191,22 +802,25 @@ async function render_all_plots() {
 /**
  * Update the interpretation in the sidebar.
  * Only shows interpretation after all selections (equation, BC, dimension) are made.
- * Uses BC-level interpretation if available, otherwise falls back to equation-level.
+ * Loads description from description.txt file in benchmark directory.
  */
-function update_interpretation() {
+async function update_interpretation() {
     const interp_section = document.getElementById('interpretation-section');
     const interp_el = document.getElementById('physics-interpretation');
 
-    if (state.equation && state.boundary_condition && state.dimension && pde_data[state.equation]) {
-        // Try BC-level interpretation first
-        const bc_data = pde_data[state.equation]?.dimensions?.[state.dimension]?.boundary_conditions?.[state.boundary_condition];
-        if (bc_data?.interpretation) {
-            interp_el.textContent = bc_data.interpretation;
+    if (state.equation && state.boundary_condition && state.dimension) {
+        const description = await load_problem_description(
+            state.equation,
+            state.boundary_condition,
+            state.dimension
+        );
+        if (description) {
+            interp_el.textContent = description;
+            interp_section.style.display = 'block';
         } else {
-            // Fall back to equation-level interpretation
-            interp_el.textContent = pde_data[state.equation].interpretation || '';
+            interp_el.textContent = '';
+            interp_section.style.display = 'none';
         }
-        interp_section.style.display = 'block';
     } else {
         interp_el.textContent = '';
         interp_section.style.display = 'none';
@@ -350,8 +964,9 @@ function setup_equation_dropdown() {
             document.querySelector('.plots-container').style.display = 'none';
             state.plots_visible = false;
 
-            // Hide interpretation until full selection
+            // Hide interpretation and controls until full selection
             update_interpretation();
+            update_sidebar_controls();
         });
     });
 }
@@ -454,40 +1069,10 @@ function setup_dim_dropdown_listeners() {
             // Hide plots until full selection
             document.querySelector('.plots-container').style.display = 'none';
             state.plots_visible = false;
+
+            // Update controls visibility (hides 3D controls when switching to 2D)
+            update_sidebar_controls();
         });
-    });
-}
-
-/**
- * Set up solver dropdown listeners.
- */
-function setup_solver_dropdowns() {
-    document.getElementById('plot1-solver').addEventListener('change', async (e) => {
-        state.plot1_solver = e.target.value;
-        if (!state.plots_visible) return;
-
-        const grid1 = await render_plot('plot1', state.plot1_solver, 'plot1_data');
-        const reshape_fn2 = state.plot2_data.column_major ? reshape_to_grid_column_major : reshape_to_grid;
-        const grid2 = reshape_fn2(
-            state.plot2_data.values instanceof Float32Array ?
-                state.plot2_data.values : new Float32Array(state.plot2_data.values),
-            state.resolution
-        );
-        render_error_plot(grid1, grid2);
-    });
-
-    document.getElementById('plot2-solver').addEventListener('change', async (e) => {
-        state.plot2_solver = e.target.value;
-        if (!state.plots_visible) return;
-
-        const reshape_fn1 = state.plot1_data.column_major ? reshape_to_grid_column_major : reshape_to_grid;
-        const grid1 = reshape_fn1(
-            state.plot1_data.values instanceof Float32Array ?
-                state.plot1_data.values : new Float32Array(state.plot1_data.values),
-            state.resolution
-        );
-        const grid2 = await render_plot('plot2', state.plot2_solver, 'plot2_data');
-        render_error_plot(grid1, grid2);
     });
 }
 
@@ -505,9 +1090,20 @@ async function initialize() {
         document.querySelectorAll('.dropdown-menu.open').forEach(m => m.classList.remove('open'));
     });
 
-    // Setup dropdowns
+    // Setup equation dropdown (solver dropdowns are now dynamic)
     setup_equation_dropdown();
-    setup_solver_dropdowns();
+
+    // Setup sidebar z-slice slider (exists in HTML, just needs event listener)
+    const z_slice_slider = document.getElementById('z-slice-slider');
+    if (z_slice_slider) {
+        z_slice_slider.addEventListener('input', handle_z_slice_change);
+    }
+
+    // Setup reset view button
+    const reset_view_btn = document.getElementById('reset-view-btn');
+    if (reset_view_btn) {
+        reset_view_btn.addEventListener('click', handle_reset_view);
+    }
 
     console.log('Initialization complete. Select equation, boundary condition, and dimensionality to view plots.');
 }

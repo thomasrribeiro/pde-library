@@ -1,0 +1,1 @@
+A room whose ceiling is heated according to sin(πx)sin(πy), and whose walls and floor are held at a temperature of 0.

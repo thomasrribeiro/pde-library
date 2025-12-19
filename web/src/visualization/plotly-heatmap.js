@@ -1,8 +1,31 @@
 /**
  * Plotly.js heatmap visualization utilities.
+ *
+ * Uses custom colorscales matching VTK.js 3D visualization for consistency.
  */
 
 const PLOT_SIZE = 320; // Match sidebar width
+
+// Custom Viridis colorscale matching VTK.js (white at 0 -> purple -> teal -> yellow)
+// White at zero for consistency with 3D volume rendering (transparent at 0)
+const VIRIDIS_COLORSCALE = [
+    [0.0, 'rgb(255, 255, 255)'],   // White at 0
+    [0.1, 'rgb(68, 1, 84)'],       // Dark purple
+    [0.25, 'rgb(72, 36, 117)'],    // Purple-blue
+    [0.5, 'rgb(32, 144, 140)'],    // Teal
+    [0.75, 'rgb(189, 223, 38)'],   // Yellow-green
+    [1.0, 'rgb(253, 231, 37)']     // Yellow
+];
+
+// Custom Reds colorscale matching VTK.js (white -> red)
+const REDS_COLORSCALE = [
+    [0.0, 'rgb(255, 255, 255)'],   // White at 0
+    [0.1, 'rgb(252, 230, 217)'],   // Very light pink
+    [0.25, 'rgb(252, 199, 181)'],  // Light pink
+    [0.5, 'rgb(250, 130, 112)'],   // Salmon
+    [0.75, 'rgb(214, 48, 38)'],    // Red
+    [1.0, 'rgb(102, 0, 13)']       // Dark red
+];
 
 /**
  * Create a 2D heatmap plot using Plotly.
@@ -15,31 +38,42 @@ const PLOT_SIZE = 320; // Match sidebar width
  */
 export function create_heatmap(element_id, z_data, x_values, y_values, options = {}) {
     const {
-        colorscale = 'Viridis',
+        colorscale = 'viridis',
         zmin = null,
         zmax = null,
         showscale = true
     } = options;
+
+    // Select colorscale based on option (use custom scales matching VTK.js)
+    const colorscale_lower = colorscale.toLowerCase();
+    const selected_colorscale = colorscale_lower === 'reds'
+        ? REDS_COLORSCALE
+        : VIRIDIS_COLORSCALE;
 
     const data = [{
         type: 'heatmap',
         z: z_data,
         x: x_values,
         y: y_values,
-        colorscale: colorscale,
+        colorscale: selected_colorscale,
         zmin: zmin,
         zmax: zmax,
         showscale: showscale,
+        zsmooth: 'best',  // Bilinear interpolation for smooth appearance
         hoverongaps: false,
         hoverinfo: 'none',
         colorbar: {
-            thickness: 10,
-            lenmode: 'pixels',
-            len: 238,
-            yref: 'y domain',
+            thickness: 12,
+            lenmode: 'fraction',
+            len: 0.6,
+            yref: 'paper',
             y: 0.5,
             yanchor: 'middle',
-            tickfont: { size: 9 }
+            tickfont: { size: 10, family: 'monospace' },
+            xpad: 8,
+            outlinewidth: 1,
+            outlinecolor: '#333',
+            borderwidth: 0
         }
     }];
 

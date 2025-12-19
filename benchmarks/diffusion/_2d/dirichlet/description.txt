@@ -1,0 +1,1 @@
+A hot spot (Gaussian temperature distribution) placed at the center of a square plate whose edges are held at zero temperature. Over time, the heat spreads outward from the center and is absorbed at the cold boundaries, causing the initial concentrated hot spot to flatten and fade away.

@@ -251,7 +251,7 @@ def solve_wave_equation_2d(
                 drho_x_dt = -rho0_over_dx * dvx_dx
 
                 # Combined PML
-                pml = pml_p_x[i] * pml_p_y[j] if j < ny_total else pml_p_x[i]
+                pml = pml_p_x[i] * pml_p_y[j]
 
                 # Exponential PML update
                 rho_x[i, j] = pml * (pml * rho_x[i, j] + dt * drho_x_dt)

@@ -10,8 +10,8 @@ __pycache__/
 # Jupyter
 .ipynb_checkpoints/
 
-# Results and outputs
-**/results/
+# Temporary local development outputs (not committed)
+**/tmp/
 
 # Build and distribution
 dist/
