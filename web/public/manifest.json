@@ -8,7 +8,10 @@
           "boundary_conditions": {
             "dirichlet": {
               "label": "Dirichlet",
-              "detail": "Top: u = sin(πx) · Other edges: u = 0",
+              "detail": [
+                "Top: u = sin(πx)",
+                "Other edges: u = 0"
+              ],
               "solvers": [
                 "analytical",
                 "dolfinx",

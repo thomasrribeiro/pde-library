@@ -84,26 +84,52 @@ def scan_benchmark_results(benchmarks_dir: Path) -> dict:
     }
 
     # Detailed BC edge descriptions per problem (equation/dimension/bc)
-    # Format: "edge: condition" for each edge
+    # Format: list of "edge: condition" strings, one per line
     bc_edge_details = {
         # Laplace 2D
-        ('laplace', '2d', 'dirichlet'): 'Top: u = sin(πx) · Other edges: u = 0',
-        ('laplace', '2d', 'mixed'): 'Left/Bottom: u = 0 · Right/Top: ∂u/∂n = 0',
+        ('laplace', '2d', 'dirichlet'): [
+            'Top: u = sin(πx)',
+            'Other edges: u = 0',
+        ],
+        ('laplace', '2d', 'mixed'): [
+            'Left/Bottom: u = 0',
+            'Right/Top: ∂u/∂n = 0',
+        ],
         # Laplace 3D
-        ('laplace', '3d', 'mixed'): 'z=0: u = sin(πx)sin(πy) · z=1: ∂u/∂n = 0 · Sides: u = 0',
+        ('laplace', '3d', 'mixed'): [
+            'z=0: u = sin(πx)sin(πy)',
+            'z=1: ∂u/∂n = 0',
+            'Sides: u = 0',
+        ],
         # Poisson 2D
-        ('poisson', '2d', 'dirichlet'): 'All edges: u = 0',
+        ('poisson', '2d', 'dirichlet'): [
+            'All edges: u = 0',
+        ],
         # Helmholtz 2D
-        ('helmholtz', '2d', 'mixed'): 'x=0, y=0: u = u_exact · x=1, y=1: ∂u/∂n = g',
+        ('helmholtz', '2d', 'mixed'): [
+            'x=0, y=0: u = u_exact',
+            'x=1, y=1: ∂u/∂n = g',
+        ],
         # Diffusion 2D
-        ('diffusion', '2d', 'dirichlet'): 'All edges: u = 0',
+        ('diffusion', '2d', 'dirichlet'): [
+            'All edges: u = 0',
+        ],
         # Advection 2D
-        ('advection', '2d', 'inflow_outflow'): 'Inflow (x=0, y=0): u = 0 · Outflow: natural BC',
+        ('advection', '2d', 'inflow_outflow'): [
+            'Inflow (x=0, y=0): u = 0',
+            'Outflow: natural BC',
+        ],
         # Convection-Diffusion 2D
-        ('convection_diffusion', '2d', 'neumann'): 'All edges: ∂u/∂n = 0',
+        ('convection_diffusion', '2d', 'neumann'): [
+            'All edges: ∂u/∂n = 0',
+        ],
         # Wave 2D
-        ('wave', '2d', 'periodic'): 'All edges: ∂u/∂n = 0 (reflecting)',
-        ('wave', '2d', 'pml'): 'Absorbing sponge layer at boundaries',
+        ('wave', '2d', 'periodic'): [
+            'All edges: ∂u/∂n = 0 (reflecting)',
+        ],
+        ('wave', '2d', 'pml'): [
+            'Absorbing sponge layer at boundaries',
+        ],
     }
 
     manifest = {'equations': {}}
@@ -175,9 +201,9 @@ def scan_benchmark_results(benchmarks_dir: Path) -> dict:
                     key=lambda r: (len(resolution_solvers[str(r)]), r)
                 )
 
-                # Get BC edge details if available
+                # Get BC edge details if available (as list of strings)
                 edge_key = (equation_name, dimension, bc_name)
-                edge_detail = bc_edge_details.get(edge_key, '')
+                edge_detail = bc_edge_details.get(edge_key, [])
 
                 bc_data = {
                     'label': bc_labels.get(bc_name, bc_name.title()),

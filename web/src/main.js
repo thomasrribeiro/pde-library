@@ -919,11 +919,11 @@ function populate_bc_dropdown() {
         title.textContent = bc.label;
         item.appendChild(title);
 
-        // Add edge detail if available
-        if (bc.detail) {
+        // Add edge details if available (as list of lines)
+        if (bc.detail && bc.detail.length > 0) {
             const detail = document.createElement('div');
             detail.className = 'dropdown-item-detail';
-            detail.textContent = bc.detail;
+            detail.innerHTML = bc.detail.map(line => `<div>${line}</div>`).join('');
             item.appendChild(detail);
         }
 
@@ -1055,9 +1055,12 @@ function setup_bc_dropdown_listeners() {
 
             const bc = manifest.equations[state.equation].dimensions[state.dimension].boundary_conditions[value];
 
+            const detailHtml = bc.detail && bc.detail.length > 0
+                ? `<div class="selected-detail">${bc.detail.map(line => `<div>${line}</div>`).join('')}</div>`
+                : '';
             new_selected.innerHTML = `
                 <div class="selected-title">${bc.label}</div>
-                ${bc.detail ? `<div class="selected-detail">${bc.detail}</div>` : ''}
+                ${detailHtml}
             `;
 
             new_menu.querySelectorAll('.dropdown-item').forEach(i => i.classList.remove('selected'));
