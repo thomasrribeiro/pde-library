@@ -72,14 +72,38 @@ def scan_benchmark_results(benchmarks_dir: Path) -> dict:
         'wave': {'label': 'Wave', 'formula': '∂²u/∂t² = c²∇²u'},
     }
 
-    # BC metadata (labels)
-    bc_metadata = {
-        'dirichlet': {'label': 'Dirichlet'},
-        'neumann': {'label': 'Neumann'},
-        'mixed': {'label': 'Mixed'},
-        'periodic': {'label': 'Periodic'},
-        'pml': {'label': 'PML (Absorbing)'},
-        'inflow_outflow': {'label': 'Inflow/Outflow'},
+    # BC metadata (labels and edge descriptions)
+    # Generic labels
+    bc_labels = {
+        'dirichlet': 'Dirichlet',
+        'neumann': 'Neumann',
+        'mixed': 'Mixed',
+        'periodic': 'Periodic',
+        'pml': 'PML (Absorbing)',
+        'inflow_outflow': 'Inflow/Outflow',
+    }
+
+    # Detailed BC edge descriptions per problem (equation/dimension/bc)
+    # Format: "edge: condition" for each edge
+    bc_edge_details = {
+        # Laplace 2D
+        ('laplace', '2d', 'dirichlet'): 'Top: u = sin(πx) · Other edges: u = 0',
+        ('laplace', '2d', 'mixed'): 'Left/Bottom: u = 0 · Right/Top: ∂u/∂n = 0',
+        # Laplace 3D
+        ('laplace', '3d', 'mixed'): 'z=0: u = sin(πx)sin(πy) · z=1: ∂u/∂n = 0 · Sides: u = 0',
+        # Poisson 2D
+        ('poisson', '2d', 'dirichlet'): 'All edges: u = 0',
+        # Helmholtz 2D
+        ('helmholtz', '2d', 'mixed'): 'x=0, y=0: u = u_exact · x=1, y=1: ∂u/∂n = g',
+        # Diffusion 2D
+        ('diffusion', '2d', 'dirichlet'): 'All edges: u = 0',
+        # Advection 2D
+        ('advection', '2d', 'inflow_outflow'): 'Inflow (x=0, y=0): u = 0 · Outflow: natural BC',
+        # Convection-Diffusion 2D
+        ('convection_diffusion', '2d', 'neumann'): 'All edges: ∂u/∂n = 0',
+        # Wave 2D
+        ('wave', '2d', 'periodic'): 'All edges: ∂u/∂n = 0 (reflecting)',
+        ('wave', '2d', 'pml'): 'Absorbing sponge layer at boundaries',
     }
 
     manifest = {'equations': {}}
@@ -151,8 +175,13 @@ def scan_benchmark_results(benchmarks_dir: Path) -> dict:
                     key=lambda r: (len(resolution_solvers[str(r)]), r)
                 )
 
+                # Get BC edge details if available
+                edge_key = (equation_name, dimension, bc_name)
+                edge_detail = bc_edge_details.get(edge_key, '')
+
                 bc_data = {
-                    'label': bc_metadata.get(bc_name, {}).get('label', bc_name.title()),
+                    'label': bc_labels.get(bc_name, bc_name.title()),
+                    'detail': edge_detail,
                     'solvers': all_solvers,
                     'resolutions': all_resolutions,
                     'resolution_solvers': resolution_solvers,

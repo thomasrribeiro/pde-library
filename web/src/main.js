@@ -919,6 +919,14 @@ function populate_bc_dropdown() {
         title.textContent = bc.label;
         item.appendChild(title);
 
+        // Add edge detail if available
+        if (bc.detail) {
+            const detail = document.createElement('div');
+            detail.className = 'dropdown-item-detail';
+            detail.textContent = bc.detail;
+            item.appendChild(detail);
+        }
+
         bc_menu.appendChild(item);
     }
 
@@ -1049,6 +1057,7 @@ function setup_bc_dropdown_listeners() {
 
             new_selected.innerHTML = `
                 <div class="selected-title">${bc.label}</div>
+                ${bc.detail ? `<div class="selected-detail">${bc.detail}</div>` : ''}
             `;
 
             new_menu.querySelectorAll('.dropdown-item').forEach(i => i.classList.remove('selected'));
