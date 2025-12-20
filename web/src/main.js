@@ -2,14 +2,60 @@
  * PDE Library Web Visualization - Main Entry Point
  */
 
-import {
-    generate_laplace_solution_on_grid,
-    reshape_to_grid,
-    reshape_to_grid_column_major,
-    get_axis_values
-} from './solvers/laplace.js';
+import { load_solver_data, load_problem_description, load_manifest } from './data/loader.js';
 
-import { load_solver_data, load_problem_description } from './data/loader.js';
+/**
+ * Reshape flat array to 2D grid (row-major order).
+ * @param {Float32Array|Array} flat_values - Flat array of values
+ * @param {number} resolution - Grid resolution (cells per dimension)
+ * @returns {Array<Array<number>>} 2D grid array
+ */
+function reshape_to_grid(flat_values, resolution) {
+    const nodes_per_dim = resolution + 1;
+    const grid = [];
+    for (let j = 0; j < nodes_per_dim; j++) {
+        const row = [];
+        for (let i = 0; i < nodes_per_dim; i++) {
+            row.push(flat_values[j * nodes_per_dim + i]);
+        }
+        grid.push(row);
+    }
+    return grid;
+}
+
+/**
+ * Reshape flat array to 2D grid (column-major/Fortran order).
+ * @param {Float32Array|Array} flat_values - Flat array of values
+ * @param {number} resolution - Grid resolution (cells per dimension)
+ * @returns {Array<Array<number>>} 2D grid array
+ */
+function reshape_to_grid_column_major(flat_values, resolution) {
+    const nodes_per_dim = resolution + 1;
+    const grid = [];
+    for (let j = 0; j < nodes_per_dim; j++) {
+        const row = [];
+        for (let i = 0; i < nodes_per_dim; i++) {
+            // Column-major: x varies fastest, so index = i * nodes_per_dim + j
+            row.push(flat_values[i * nodes_per_dim + j]);
+        }
+        grid.push(row);
+    }
+    return grid;
+}
+
+/**
+ * Get axis values for a given resolution.
+ * @param {number} resolution - Grid resolution (cells per dimension)
+ * @returns {Array<number>} Array of axis values from 0 to 1
+ */
+function get_axis_values(resolution) {
+    const nodes_per_dim = resolution + 1;
+    const values = [];
+    for (let i = 0; i < nodes_per_dim; i++) {
+        values.push(i / resolution);
+    }
+    return values;
+}
 
 import {
     create_heatmap,
@@ -29,12 +75,15 @@ import {
     find_grid_range_3d
 } from './visualization/vtk-volume.js';
 
-// Available solvers (order matters for default selection)
-const AVAILABLE_SOLVERS = [
-    { id: 'analytical', label: 'Analytical' },
-    { id: 'warp', label: 'Warp' },
-    { id: 'dolfinx', label: 'DOLFINx' }
-];
+// Solver label mapping
+const SOLVER_LABELS = {
+    'analytical': 'Analytical',
+    'warp': 'Warp',
+    'dolfinx': 'DOLFINx'
+};
+
+// Manifest data (loaded at startup)
+let manifest = null;
 
 // Application state
 const state = {
@@ -44,6 +93,7 @@ const state = {
     resolution: 32,
     // Dynamic solver management
     active_solvers: ['analytical'],  // Array of active solver IDs
+    available_solvers: [],            // Solvers available for current problem (from manifest)
     solver_data: {},                  // Map: solver_id -> data object
     solver_grids: {},                 // Map: solver_id -> 2D/3D grid array
     solver_grids_3d: {},              // Map: solver_id -> 3D grid array (for 3D problems)
@@ -62,14 +112,19 @@ function is_3d_problem() {
  * Get the default solver (analytical if available, otherwise first solver).
  */
 function get_default_solver() {
-    return 'analytical';
+    if (state.available_solvers.includes('analytical')) {
+        return 'analytical';
+    }
+    return state.available_solvers[0] || 'analytical';
 }
 
 /**
  * Get list of solvers available to add (not already active).
  */
 function get_available_solvers_to_add() {
-    return AVAILABLE_SOLVERS.filter(s => !state.active_solvers.includes(s.id));
+    return state.available_solvers
+        .filter(id => !state.active_solvers.includes(id))
+        .map(id => ({ id, label: SOLVER_LABELS[id] || id }));
 }
 
 /**
@@ -91,8 +146,7 @@ function get_solver_pairs() {
  * Get solver label by ID.
  */
 function get_solver_label(solver_id) {
-    const solver = AVAILABLE_SOLVERS.find(s => s.id === solver_id);
-    return solver ? solver.label : solver_id;
+    return SOLVER_LABELS[solver_id] || solver_id;
 }
 
 /**
@@ -113,11 +167,11 @@ function create_solver_plot_element(solver_id) {
     select.className = 'solver-select';
     select.dataset.solverId = solver_id;
 
-    for (const solver of AVAILABLE_SOLVERS) {
+    for (const id of state.available_solvers) {
         const option = document.createElement('option');
-        option.value = solver.id;
-        option.textContent = solver.label;
-        option.selected = solver.id === solver_id;
+        option.value = id;
+        option.textContent = SOLVER_LABELS[id] || id;
+        option.selected = id === solver_id;
         select.appendChild(option);
     }
 
@@ -265,89 +319,46 @@ function update_add_solver_dropdown() {
     select.selectedIndex = 0;
 }
 
-// Hierarchical data structure for cascading dropdowns
-const pde_data = {
-    laplace: {
-        label: "Laplace:",
-        formula: "∇²u = 0",
-        dimensions: {
-            "2d": {
-                label: "2D",
-                boundary_conditions: {
-                    dirichlet: {
-                        label: "Dirichlet:",
-                        conditions: [
-                            "Top edge: u = sin(πx)",
-                            "Bottom edge: u = 0",
-                            "Left edge: u = 0",
-                            "Right edge: u = 0"
-                        ]
-                    },
-                    mixed: {
-                        label: "Mixed:",
-                        conditions: [
-                            "Top edge: u = sin(πx)",
-                            "Bottom edge: ∂u/∂y = 0",
-                            "Left edge: u = 0",
-                            "Right edge: u = 0"
-                        ]
-                    }
-                }
-            },
-            "3d": {
-                label: "3D",
-                boundary_conditions: {
-                    dirichlet: {
-                        label: "Dirichlet:",
-                        conditions: [
-                            "Top face (z=1): u = sin(πx)sin(πy)",
-                            "Bottom face (z=0): u = 0",
-                            "Side faces: u = 0"
-                        ]
-                    }
-                }
-            }
-        }
-    },
-    poisson: {
-        label: "Poisson:",
-        formula: "−∇²u = 2π²sin(πx)sin(πy)",
-        dimensions: {
-            "2d": {
-                label: "2D",
-                boundary_conditions: {
-                    dirichlet: {
-                        label: "Dirichlet:",
-                        conditions: [
-                            "All edges: u = 0"
-                        ]
-                    }
-                }
-            }
-        }
+/**
+ * Get current problem data from manifest.
+ */
+function get_problem_data() {
+    if (!manifest || !state.equation || !state.dimension || !state.boundary_condition) {
+        return null;
     }
-};
+    const eq = manifest.equations[state.equation];
+    if (!eq) return null;
+    const dim = eq.dimensions[state.dimension];
+    if (!dim) return null;
+    return dim.boundary_conditions[state.boundary_condition] || null;
+}
+
+/**
+ * Update state with available solvers and resolution from manifest.
+ */
+function update_state_from_manifest() {
+    const problem = get_problem_data();
+    if (!problem) {
+        state.available_solvers = [];
+        state.resolution = 32;
+        state.active_solvers = ['analytical'];
+        return;
+    }
+
+    state.available_solvers = problem.solvers || [];
+    state.resolution = problem.default_resolution || 32;
+
+    // Reset active solvers to default
+    const default_solver = get_default_solver();
+    state.active_solvers = [default_solver];
+}
 
 /**
  * Get solution data for a solver.
  * Returns data with a `column_major` flag indicating data ordering.
+ * All data is loaded from npz files via GitHub.
  */
 async function get_solver_data(solver) {
-    if (solver === 'analytical') {
-        // Only use JS implementation for 2D laplace with dirichlet BC
-        // 3D problems and other BCs need to load from npz files
-        if (state.equation === 'laplace' && state.boundary_condition === 'dirichlet' && state.dimension === '2d') {
-            const solution = generate_laplace_solution_on_grid(state.resolution);
-            return {
-                x: Array.from(solution.x),
-                y: Array.from(solution.y),
-                values: Array.from(solution.values),
-                resolution: solution.resolution,
-                column_major: false  // JS solver uses row-major order
-            };
-        }
-    }
-
     const data = await load_solver_data(
         state.equation,
         state.boundary_condition,
@@ -839,7 +850,7 @@ function populate_dim_dropdown() {
     dim_selected.innerHTML = '<span class="dropdown-placeholder">Select dimensionality</span>';
     state.dimension = null;
 
-    if (!state.equation || !pde_data[state.equation]) {
+    if (!manifest || !state.equation || !manifest.equations[state.equation]) {
         dim_dropdown.classList.add('disabled');
         return;
     }
@@ -850,15 +861,15 @@ function populate_dim_dropdown() {
     label.textContent = 'Select dimension';
     dim_menu.appendChild(label);
 
-    const dims = pde_data[state.equation].dimensions;
-    for (const [key, dim] of Object.entries(dims)) {
+    const dims = manifest.equations[state.equation].dimensions;
+    for (const key of Object.keys(dims)) {
         const item = document.createElement('div');
         item.className = 'dropdown-item';
         item.dataset.value = key;
 
         const title = document.createElement('div');
         title.className = 'dropdown-item-title';
-        title.textContent = dim.label;
+        title.textContent = key.toUpperCase();  // "2d" -> "2D"
         item.appendChild(title);
 
         dim_menu.appendChild(item);
@@ -880,7 +891,13 @@ function populate_bc_dropdown() {
     bc_selected.innerHTML = '<span class="dropdown-placeholder">Select boundary conditions</span>';
     state.boundary_condition = null;
 
-    if (!state.equation || !state.dimension) {
+    if (!manifest || !state.equation || !state.dimension) {
+        bc_dropdown.classList.add('disabled');
+        return;
+    }
+
+    const eq = manifest.equations[state.equation];
+    if (!eq || !eq.dimensions[state.dimension]) {
         bc_dropdown.classList.add('disabled');
         return;
     }
@@ -891,7 +908,7 @@ function populate_bc_dropdown() {
     label.textContent = 'Select boundary conditions';
     bc_menu.appendChild(label);
 
-    const bcs = pde_data[state.equation].dimensions[state.dimension].boundary_conditions;
+    const bcs = eq.dimensions[state.dimension].boundary_conditions;
     for (const [key, bc] of Object.entries(bcs)) {
         const item = document.createElement('div');
         item.className = 'dropdown-item';
@@ -902,22 +919,47 @@ function populate_bc_dropdown() {
         title.textContent = bc.label;
         item.appendChild(title);
 
-        const detail = document.createElement('div');
-        detail.className = 'dropdown-item-detail';
-        const ul = document.createElement('ul');
-        for (const cond of bc.conditions) {
-            const li = document.createElement('li');
-            li.textContent = cond;
-            ul.appendChild(li);
-        }
-        detail.appendChild(ul);
-        item.appendChild(detail);
-
         bc_menu.appendChild(item);
     }
 
     bc_dropdown.classList.remove('disabled');
     setup_bc_dropdown_listeners();
+}
+
+/**
+ * Populate equation dropdown from manifest.
+ */
+function populate_equation_dropdown() {
+    const menu = document.getElementById('equation-menu');
+    menu.innerHTML = '';
+
+    if (!manifest) {
+        return;
+    }
+
+    // Add label (non-clickable)
+    const label = document.createElement('div');
+    label.className = 'dropdown-label';
+    label.textContent = 'Select equation';
+    menu.appendChild(label);
+
+    for (const [key, eq] of Object.entries(manifest.equations)) {
+        const item = document.createElement('div');
+        item.className = 'dropdown-item';
+        item.dataset.value = key;
+
+        const title = document.createElement('div');
+        title.className = 'dropdown-item-title';
+        title.textContent = eq.label;
+        item.appendChild(title);
+
+        const detail = document.createElement('div');
+        detail.className = 'dropdown-item-detail';
+        detail.textContent = eq.formula;
+        item.appendChild(detail);
+
+        menu.appendChild(item);
+    }
 }
 
 /**
@@ -936,38 +978,39 @@ function setup_equation_dropdown() {
         menu.classList.toggle('open');
     });
 
-    menu.querySelectorAll('.dropdown-item').forEach(item => {
-        item.addEventListener('click', async (e) => {
-            e.stopPropagation();
-            const value = item.dataset.value;
-            state.equation = value;
+    menu.addEventListener('click', async (e) => {
+        const item = e.target.closest('.dropdown-item');
+        if (!item) return;
 
-            // Update selected display
-            const eq = pde_data[value];
-            selected.innerHTML = `
-                <div class="selected-title">${eq.label}</div>
-                <div class="selected-detail">${eq.formula}</div>
-            `;
+        e.stopPropagation();
+        const value = item.dataset.value;
+        state.equation = value;
 
-            menu.querySelectorAll('.dropdown-item').forEach(i => i.classList.remove('selected'));
-            item.classList.add('selected');
-            menu.classList.remove('open');
+        // Update selected display
+        const eq = manifest.equations[value];
+        selected.innerHTML = `
+            <div class="selected-title">${eq.label}</div>
+            <div class="selected-detail">${eq.formula}</div>
+        `;
 
-            // Reset and populate dimension dropdown
-            populate_dim_dropdown();
-            // Reset BC dropdown
-            document.getElementById('bc-dropdown').classList.add('disabled');
-            document.getElementById('bc-selected').innerHTML = '<span class="dropdown-placeholder">Select boundary conditions</span>';
-            state.boundary_condition = null;
+        menu.querySelectorAll('.dropdown-item').forEach(i => i.classList.remove('selected'));
+        item.classList.add('selected');
+        menu.classList.remove('open');
 
-            // Hide plots until full selection
-            document.querySelector('.plots-container').style.display = 'none';
-            state.plots_visible = false;
+        // Reset and populate dimension dropdown
+        populate_dim_dropdown();
+        // Reset BC dropdown
+        document.getElementById('bc-dropdown').classList.add('disabled');
+        document.getElementById('bc-selected').innerHTML = '<span class="dropdown-placeholder">Select boundary conditions</span>';
+        state.boundary_condition = null;
 
-            // Hide interpretation and controls until full selection
-            update_interpretation();
-            update_sidebar_controls();
-        });
+        // Hide plots until full selection
+        document.querySelector('.plots-container').style.display = 'none';
+        state.plots_visible = false;
+
+        // Hide interpretation and controls until full selection
+        update_interpretation();
+        update_sidebar_controls();
     });
 }
 
@@ -976,8 +1019,6 @@ function setup_equation_dropdown() {
  */
 function setup_bc_dropdown_listeners() {
     const dropdown = document.getElementById('bc-dropdown');
-    const menu = document.getElementById('bc-menu');
-    const selected = document.getElementById('bc-selected');
 
     // Remove old listener by cloning
     const new_dropdown = dropdown.cloneNode(true);
@@ -1001,16 +1042,13 @@ function setup_bc_dropdown_listeners() {
             const value = item.dataset.value;
             state.boundary_condition = value;
 
-            const bc = pde_data[state.equation].dimensions[state.dimension].boundary_conditions[value];
-            let conditions_html = '<ul>';
-            for (const cond of bc.conditions) {
-                conditions_html += `<li>${cond}</li>`;
-            }
-            conditions_html += '</ul>';
+            // Update state from manifest (sets resolution, available_solvers, active_solvers)
+            update_state_from_manifest();
+
+            const bc = manifest.equations[state.equation].dimensions[state.dimension].boundary_conditions[value];
 
             new_selected.innerHTML = `
                 <div class="selected-title">${bc.label}</div>
-                <div class="selected-detail">${conditions_html}</div>
             `;
 
             new_menu.querySelectorAll('.dropdown-item').forEach(i => i.classList.remove('selected'));
@@ -1029,8 +1067,6 @@ function setup_bc_dropdown_listeners() {
  */
 function setup_dim_dropdown_listeners() {
     const dropdown = document.getElementById('dim-dropdown');
-    const menu = document.getElementById('dim-menu');
-    const selected = document.getElementById('dim-selected');
 
     // Remove old listener by cloning
     const new_dropdown = dropdown.cloneNode(true);
@@ -1054,9 +1090,8 @@ function setup_dim_dropdown_listeners() {
             const value = item.dataset.value;
             state.dimension = value;
 
-            const dim = pde_data[state.equation].dimensions[value];
             new_selected.innerHTML = `
-                <div class="selected-title">${dim.label}</div>
+                <div class="selected-title">${value.toUpperCase()}</div>
             `;
 
             new_menu.querySelectorAll('.dropdown-item').forEach(i => i.classList.remove('selected'));
@@ -1085,12 +1120,21 @@ async function initialize() {
     // Hide plots initially
     document.querySelector('.plots-container').style.display = 'none';
 
+    // Load manifest first
+    manifest = await load_manifest();
+    if (!manifest) {
+        console.error('Failed to load manifest - no problems will be available');
+        return;
+    }
+    console.log(`Manifest loaded: ${Object.keys(manifest.equations).length} equations available`);
+
     // Close dropdowns when clicking outside
     document.addEventListener('click', () => {
         document.querySelectorAll('.dropdown-menu.open').forEach(m => m.classList.remove('open'));
     });
 
-    // Setup equation dropdown (solver dropdowns are now dynamic)
+    // Populate and setup equation dropdown from manifest
+    populate_equation_dropdown();
     setup_equation_dropdown();
 
     // Setup sidebar z-slice slider (exists in HTML, just needs event listener)

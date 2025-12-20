@@ -1,0 +1,33 @@
+{
+  "equations": {
+    "laplace": {
+      "label": "Laplace",
+      "formula": "∇²u = 0",
+      "dimensions": {
+        "2d": {
+          "boundary_conditions": {
+            "dirichlet": {
+              "label": "Dirichlet",
+              "solvers": [
+                "analytical",
+                "dolfinx",
+                "warp"
+              ],
+              "resolutions": [
+                32
+              ],
+              "resolution_solvers": {
+                "32": [
+                  "analytical",
+                  "dolfinx",
+                  "warp"
+                ]
+              },
+              "default_resolution": 32
+            }
+          }
+        }
+      }
+    }
+  }
+}
