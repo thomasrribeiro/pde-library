@@ -920,10 +920,16 @@ function populate_bc_dropdown() {
         item.appendChild(title);
 
         // Add edge details if available (as list of lines)
-        if (bc.detail && bc.detail.length > 0) {
+        if (bc.detail && Array.isArray(bc.detail) && bc.detail.length > 0) {
             const detail = document.createElement('div');
             detail.className = 'dropdown-item-detail';
             detail.innerHTML = bc.detail.map(line => `<div>${line}</div>`).join('');
+            item.appendChild(detail);
+        } else if (bc.detail && typeof bc.detail === 'string') {
+            // Fallback for old string format
+            const detail = document.createElement('div');
+            detail.className = 'dropdown-item-detail';
+            detail.textContent = bc.detail;
             item.appendChild(detail);
         }
 
@@ -1055,9 +1061,12 @@ function setup_bc_dropdown_listeners() {
 
             const bc = manifest.equations[state.equation].dimensions[state.dimension].boundary_conditions[value];
 
-            const detailHtml = bc.detail && bc.detail.length > 0
-                ? `<div class="selected-detail">${bc.detail.map(line => `<div>${line}</div>`).join('')}</div>`
-                : '';
+            let detailHtml = '';
+            if (bc.detail && Array.isArray(bc.detail) && bc.detail.length > 0) {
+                detailHtml = `<div class="selected-detail">${bc.detail.map(line => `<div>${line}</div>`).join('')}</div>`;
+            } else if (bc.detail && typeof bc.detail === 'string') {
+                detailHtml = `<div class="selected-detail">${bc.detail}</div>`;
+            }
             new_selected.innerHTML = `
                 <div class="selected-title">${bc.label}</div>
                 ${detailHtml}
