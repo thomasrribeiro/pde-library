@@ -89,7 +89,7 @@ def scan_benchmark_results(benchmarks_dir: Path) -> dict:
         # Laplace 2D
         ('laplace', '2d', 'dirichlet'): [
             'Top: u = sin(πx)',
-            'Other edges: u = 0',
+            'Other: u = 0',
         ],
         ('laplace', '2d', 'mixed'): [
             'Left/Bottom: u = 0',
