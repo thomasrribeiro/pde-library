@@ -58,7 +58,10 @@
           "boundary_conditions": {
             "dirichlet": {
               "label": "Dirichlet",
-              "detail": [],
+              "detail": [
+                "Ceiling: u = sin(πx)sin(πy)",
+                "Walls/Floor: u = 0"
+              ],
               "solvers": [
                 "analytical",
                 "dolfinx",
@@ -79,9 +82,9 @@
             "mixed": {
               "label": "Mixed",
               "detail": [
-                "z=0: u = sin(πx)sin(πy)",
-                "z=1: ∂u/∂n = 0",
-                "Sides: u = 0"
+                "Ceiling: u = sin(πx)sin(πy)",
+                "Floor: ∂u/∂n = 0",
+                "Walls: u = 0"
               ],
               "solvers": [
                 "analytical",
