@@ -72,7 +72,7 @@ function sync_cameras_from(source_container_id) {
 
 /**
  * Set up camera synchronization listener for a VTK context.
- * Uses interactor's EndInteractionEvent to sync after user finishes dragging.
+ * Uses camera's onModified event to sync when camera changes.
  *
  * @param {string} container_id - The container ID to set up sync for
  */
@@ -80,19 +80,12 @@ function setup_camera_sync(container_id) {
     const context = vtk_contexts[container_id];
     if (!context) return;
 
-    const { interactor } = context;
+    const { renderer } = context;
+    const camera = renderer.getActiveCamera();
 
-    // Sync on end of interaction (mouse release after rotate/pan/zoom)
-    interactor.onEndInteractionEvent(() => {
+    // Sync when camera is modified (rotation, pan, zoom)
+    camera.onModified(() => {
         sync_cameras_from(container_id);
-    });
-
-    // Also sync on mouse wheel (zoom) - these don't trigger EndInteraction
-    interactor.onMouseWheel(() => {
-        // Use requestAnimationFrame to let the camera update first
-        requestAnimationFrame(() => {
-            sync_cameras_from(container_id);
-        });
     });
 
     // If there are existing plots, sync new plot's camera to match them
@@ -102,7 +95,6 @@ function setup_camera_sync(container_id) {
         const source_context = vtk_contexts[existing_ids[0]];
         const source_camera = source_context.renderer.getActiveCamera();
 
-        const camera = context.renderer.getActiveCamera();
         camera.setPosition(...source_camera.getPosition());
         camera.setFocalPoint(...source_camera.getFocalPoint());
         camera.setViewUp(...source_camera.getViewUp());
