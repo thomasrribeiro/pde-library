@@ -58,7 +58,34 @@
           "boundary_conditions": {
             "dirichlet": {
               "label": "Dirichlet",
-              "detail": [],
+              "detail": [
+                "Ceiling: u = sin(πx)sin(πy)",
+                "Walls/Floor: u = 0"
+              ],
+              "solvers": [
+                "analytical",
+                "dolfinx",
+                "warp"
+              ],
+              "resolutions": [
+                32
+              ],
+              "resolution_solvers": {
+                "32": [
+                  "analytical",
+                  "dolfinx",
+                  "warp"
+                ]
+              },
+              "default_resolution": 32
+            },
+            "mixed": {
+              "label": "Mixed",
+              "detail": [
+                "Ceiling: u = sin(πx)sin(πy)",
+                "Floor: ∂u/∂n = 0",
+                "Walls: u = 0"
+              ],
               "solvers": [
                 "analytical",
                 "dolfinx",
