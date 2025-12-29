@@ -800,8 +800,12 @@ async function render_all_plots() {
         return;
     }
 
+    // Check if we had 3D plots before (to preserve view settings)
+    const had_3d_plots = Object.keys(state.solver_grids_3d).length > 0;
+    const preserve_slice_z = had_3d_plots ? state.global_slice_z : null;
+
     // Save camera state before disposing (to preserve orientation/zoom when switching problems)
-    if (is_3d_problem()) {
+    if (had_3d_plots) {
         save_camera_state();
     }
 
@@ -813,7 +817,8 @@ async function render_all_plots() {
     state.solver_grids = {};
     state.solver_grids_3d = {};
     state.error_grids_3d = {};
-    state.global_slice_z = 1.0;
+    // Preserve z-slice position for 3D→3D transitions, reset otherwise
+    state.global_slice_z = (preserve_slice_z !== null && is_3d_problem()) ? preserve_slice_z : 1.0;
 
     // Update sidebar controls visibility
     update_sidebar_controls();
