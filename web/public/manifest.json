@@ -53,6 +53,30 @@
               "default_resolution": 32
             }
           }
+        },
+        "3d": {
+          "boundary_conditions": {
+            "dirichlet": {
+              "label": "Dirichlet",
+              "detail": [],
+              "solvers": [
+                "analytical",
+                "dolfinx",
+                "warp"
+              ],
+              "resolutions": [
+                32
+              ],
+              "resolution_solvers": {
+                "32": [
+                  "analytical",
+                  "dolfinx",
+                  "warp"
+                ]
+              },
+              "default_resolution": 32
+            }
+          }
         }
       }
     }
