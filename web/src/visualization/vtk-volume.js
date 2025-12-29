@@ -30,6 +30,89 @@ import vtkAxesActor from '@kitware/vtk.js/Rendering/Core/AxesActor';
 // Cache for VTK contexts per plot
 const vtk_contexts = {};
 
+// Flag to prevent recursive camera sync updates
+let is_syncing_cameras = false;
+
+/**
+ * Synchronize camera state from source to all other VTK plots.
+ * Called when user interacts with any plot's camera.
+ *
+ * @param {string} source_container_id - The container ID that triggered the sync
+ */
+function sync_cameras_from(source_container_id) {
+    if (is_syncing_cameras) return;
+
+    const source_context = vtk_contexts[source_container_id];
+    if (!source_context) return;
+
+    is_syncing_cameras = true;
+
+    const source_camera = source_context.renderer.getActiveCamera();
+    const position = source_camera.getPosition();
+    const focal_point = source_camera.getFocalPoint();
+    const view_up = source_camera.getViewUp();
+    const parallel_scale = source_camera.getParallelScale();
+
+    // Apply to all other contexts
+    for (const [container_id, context] of Object.entries(vtk_contexts)) {
+        if (container_id === source_container_id) continue;
+
+        const camera = context.renderer.getActiveCamera();
+        camera.setPosition(...position);
+        camera.setFocalPoint(...focal_point);
+        camera.setViewUp(...view_up);
+        camera.setParallelScale(parallel_scale);
+
+        context.renderer.resetCameraClippingRange();
+        context.renderWindow.render();
+    }
+
+    is_syncing_cameras = false;
+}
+
+/**
+ * Set up camera synchronization listener for a VTK context.
+ * Uses interactor's EndInteractionEvent to sync after user finishes dragging.
+ *
+ * @param {string} container_id - The container ID to set up sync for
+ */
+function setup_camera_sync(container_id) {
+    const context = vtk_contexts[container_id];
+    if (!context) return;
+
+    const { interactor } = context;
+
+    // Sync on end of interaction (mouse release after rotate/pan/zoom)
+    interactor.onEndInteractionEvent(() => {
+        sync_cameras_from(container_id);
+    });
+
+    // Also sync on mouse wheel (zoom) - these don't trigger EndInteraction
+    interactor.onMouseWheel(() => {
+        // Use requestAnimationFrame to let the camera update first
+        requestAnimationFrame(() => {
+            sync_cameras_from(container_id);
+        });
+    });
+
+    // If there are existing plots, sync new plot's camera to match them
+    const existing_ids = Object.keys(vtk_contexts).filter(id => id !== container_id);
+    if (existing_ids.length > 0) {
+        // Sync from first existing plot to the new one
+        const source_context = vtk_contexts[existing_ids[0]];
+        const source_camera = source_context.renderer.getActiveCamera();
+
+        const camera = context.renderer.getActiveCamera();
+        camera.setPosition(...source_camera.getPosition());
+        camera.setFocalPoint(...source_camera.getFocalPoint());
+        camera.setViewUp(...source_camera.getViewUp());
+        camera.setParallelScale(source_camera.getParallelScale());
+
+        context.renderer.resetCameraClippingRange();
+        context.renderWindow.render();
+    }
+}
+
 /**
  * Create Viridis color transfer function for slice coloring.
  * 0 values map to white, higher values follow Viridis.
@@ -486,6 +569,9 @@ export function create_volume_plot(container_id, data_3d, options = {}) {
         zmin: computed_zmin,
         zmax: computed_zmax
     };
+
+    // Set up camera synchronization with other plots
+    setup_camera_sync(container_id);
 }
 
 /**
@@ -513,6 +599,9 @@ export function reset_camera(container_id) {
     renderer.resetCameraClippingRange();
 
     renderWindow.render();
+
+    // Sync the reset camera state to all other plots
+    sync_cameras_from(container_id);
 }
 
 /**
