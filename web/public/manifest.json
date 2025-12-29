@@ -28,6 +28,29 @@
                 ]
               },
               "default_resolution": 32
+            },
+            "mixed": {
+              "label": "Mixed",
+              "detail": [
+                "Left/Bottom: u = 0",
+                "Right/Top: ∂u/∂n = 0"
+              ],
+              "solvers": [
+                "analytical",
+                "dolfinx",
+                "warp"
+              ],
+              "resolutions": [
+                32
+              ],
+              "resolution_solvers": {
+                "32": [
+                  "analytical",
+                  "dolfinx",
+                  "warp"
+                ]
+              },
+              "default_resolution": 32
             }
           }
         }

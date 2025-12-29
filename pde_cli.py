@@ -31,6 +31,7 @@ from src.visualization import (
     save_figure,
     show_figure,
 )
+from scripts.generate_web_manifest import regenerate_manifest
 
 
 def parse_solver_path(solver_path_string: str) -> Tuple[Path, str]:
@@ -164,6 +165,10 @@ def cmd_run(args):
             except Exception as e:
                 print(f"Error running {solver_path} at resolution {resolution}: {e}")
                 sys.exit(1)
+
+    # Regenerate web manifest when saving to results/
+    if args.save:
+        regenerate_manifest()
 
 
 def cmd_compare(args):

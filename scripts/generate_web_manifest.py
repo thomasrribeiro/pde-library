@@ -227,8 +227,15 @@ def scan_benchmark_results(benchmarks_dir: Path) -> dict:
     return manifest
 
 
-def main():
-    """Generate manifest.json from benchmarks directory."""
+def regenerate_manifest(quiet: bool = False) -> Path:
+    """Regenerate the web manifest from benchmark results.
+
+    Args:
+        quiet: If True, suppress output messages
+
+    Returns:
+        Path to the generated manifest file
+    """
     project_root = Path(__file__).parent.parent
     benchmarks_dir = project_root / 'benchmarks'
     output_path = project_root / 'web' / 'public' / 'manifest.json'
@@ -236,16 +243,31 @@ def main():
     # Ensure output directory exists
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    print(f"Scanning benchmarks in: {benchmarks_dir}")
     manifest = scan_benchmark_results(benchmarks_dir)
 
     # Write manifest
     with open(output_path, 'w') as f:
         json.dump(manifest, f, indent=2, ensure_ascii=False)
 
+    if not quiet:
+        print(f"Manifest updated: {output_path}")
+
+    return output_path
+
+
+def main():
+    """Generate manifest.json from benchmarks directory (verbose mode)."""
+    project_root = Path(__file__).parent.parent
+    benchmarks_dir = project_root / 'benchmarks'
+
+    print(f"Scanning benchmarks in: {benchmarks_dir}")
+    output_path = regenerate_manifest(quiet=True)
     print(f"Generated manifest at: {output_path}")
 
     # Print summary
+    with open(output_path, 'r') as f:
+        manifest = json.load(f)
+
     total_problems = 0
     for eq_name, eq_data in manifest['equations'].items():
         for dim, dim_data in eq_data['dimensions'].items():
