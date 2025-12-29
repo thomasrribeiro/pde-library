@@ -96,9 +96,13 @@ def scan_benchmark_results(benchmarks_dir: Path) -> dict:
             'Right/Top: ∂u/∂n = 0',
         ],
         # Laplace 3D
+        ('laplace', '3d', 'dirichlet'): [
+            'Top (z=1): u = sin(πx)sin(πy)',
+            'Other: u = 0',
+        ],
         ('laplace', '3d', 'mixed'): [
-            'z=0: u = sin(πx)sin(πy)',
-            'z=1: ∂u/∂n = 0',
+            'Top (z=1): u = sin(πx)sin(πy)',
+            'Bottom (z=0): ∂u/∂n = 0',
             'Sides: u = 0',
         ],
         # Poisson 2D
