@@ -1139,6 +1139,9 @@ function setup_dim_dropdown_listeners() {
 
             // Update controls visibility (hides 3D controls when switching to 2D)
             update_sidebar_controls();
+
+            // Clear interpretation (BC not yet selected)
+            update_interpretation();
         });
     });
 }
