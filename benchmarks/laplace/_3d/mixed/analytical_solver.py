@@ -116,14 +116,13 @@ def solve(grid_resolution: int) -> Tuple[np.ndarray, np.ndarray]:
     z_values = np.linspace(0.0, 1.0, nodes_per_dimension)
 
     # Create meshgrid with 'ij' indexing for consistent ordering
-    # Flatten using C (row-major) order to match Warp's 3D node ordering:
-    # z varies fastest, then y, then x
+    # Flatten using Fortran (column-major) order to match Warp's node ordering
     x_grid, y_grid, z_grid = np.meshgrid(x_values, y_values, z_values, indexing='ij')
 
     node_positions = np.column_stack([
-        x_grid.ravel(order='C'),
-        y_grid.ravel(order='C'),
-        z_grid.ravel(order='C')
+        x_grid.ravel(order='F'),
+        y_grid.ravel(order='F'),
+        z_grid.ravel(order='F')
     ])
 
     # Evaluate analytical solution at all nodes
