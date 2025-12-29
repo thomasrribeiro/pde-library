@@ -389,7 +389,7 @@ async function get_solver_data(solver) {
 /**
  * Render a single solver plot (2D heatmap or 3D volume).
  */
-async function render_solver_plot(solver_id) {
+async function render_solver_plot(solver_id, options = {}) {
     const data = await get_solver_data(solver_id);
 
     if (!data) {
@@ -419,7 +419,9 @@ async function render_solver_plot(solver_id) {
             values: grid_3d,
             nodes_per_dim: nodes_per_dim
         }, {
-            slice_z: state.global_slice_z
+            slice_z: state.global_slice_z,
+            zmin: options.zmin,
+            zmax: options.zmax
         });
 
         return grid_3d;
@@ -433,7 +435,9 @@ async function render_solver_plot(solver_id) {
         const axis_values = get_axis_values(state.resolution);
 
         create_heatmap(plot_id, grid, axis_values, axis_values, {
-            showscale: true
+            showscale: true,
+            zmin: options.zmin,
+            zmax: options.zmax
         });
 
         return grid;
@@ -754,11 +758,102 @@ async function handle_add_solver(event) {
 }
 
 /**
- * Render all active solver plots.
+ * Render all active solver plots with shared colorscale.
+ * For 3D problems, first loads all data to compute global min/max,
+ * then renders all plots with the same color range.
  */
 async function render_all_solver_plots() {
-    const render_promises = state.active_solvers.map(solver_id => render_solver_plot(solver_id));
-    await Promise.all(render_promises);
+    if (is_3d_problem()) {
+        // For 3D: load all data first, compute global range, then render
+        const load_promises = state.active_solvers.map(async solver_id => {
+            const data = await get_solver_data(solver_id);
+            if (!data) return null;
+
+            state.solver_data[solver_id] = data;
+
+            const values = data.values instanceof Float64Array || data.values instanceof Float32Array
+                ? Array.from(data.values)
+                : data.values;
+
+            const nodes_per_dim = state.resolution + 1;
+            const data_order = solver_id === 'analytical' ? 'fortran' : 'warp';
+            const grid_3d = reshape_to_3d_grid(values, nodes_per_dim, data_order);
+            state.solver_grids_3d[solver_id] = grid_3d;
+
+            return grid_3d;
+        });
+
+        const grids = await Promise.all(load_promises);
+
+        // Compute global min/max across all grids
+        let global_min = Infinity;
+        let global_max = -Infinity;
+        for (const grid of grids) {
+            if (!grid) continue;
+            const range = find_grid_range_3d(grid);
+            global_min = Math.min(global_min, range.min);
+            global_max = Math.max(global_max, range.max);
+        }
+
+        // Create all plots with shared range
+        for (const solver_id of state.active_solvers) {
+            const grid_3d = state.solver_grids_3d[solver_id];
+            if (!grid_3d) continue;
+
+            const plot_id = `plot-${solver_id}`;
+            const nodes_per_dim = state.resolution + 1;
+
+            create_volume_plot(plot_id, {
+                values: grid_3d,
+                nodes_per_dim: nodes_per_dim
+            }, {
+                slice_z: state.global_slice_z,
+                zmin: global_min,
+                zmax: global_max
+            });
+        }
+    } else {
+        // For 2D: load all data first, compute global range, then render
+        const load_promises = state.active_solvers.map(async solver_id => {
+            const data = await get_solver_data(solver_id);
+            if (!data) return null;
+
+            state.solver_data[solver_id] = data;
+
+            const values = data.values instanceof Float32Array ? data.values : new Float32Array(data.values);
+            const reshape_fn = data.column_major ? reshape_to_grid_column_major : reshape_to_grid;
+            const grid = reshape_fn(values, state.resolution);
+            state.solver_grids[solver_id] = grid;
+
+            return grid;
+        });
+
+        const grids = await Promise.all(load_promises);
+
+        // Compute global min/max across all 2D grids
+        let global_min = Infinity;
+        let global_max = -Infinity;
+        for (const grid of grids) {
+            if (!grid) continue;
+            const range = find_grid_range(grid);
+            global_min = Math.min(global_min, range.min);
+            global_max = Math.max(global_max, range.max);
+        }
+
+        // Create all 2D plots with shared range
+        const axis_values = get_axis_values(state.resolution);
+        for (const solver_id of state.active_solvers) {
+            const grid = state.solver_grids[solver_id];
+            if (!grid) continue;
+
+            const plot_id = `plot-${solver_id}`;
+            create_heatmap(plot_id, grid, axis_values, axis_values, {
+                showscale: true,
+                zmin: global_min,
+                zmax: global_max
+            });
+        }
+    }
 }
 
 /**
