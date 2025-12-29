@@ -10,7 +10,8 @@ Boundary conditions:
     u(x, 0, z) = 0              (front, y=0)
     u(x, 1, z) = 0              (back, y=1)
 
-Analytical solution: u(x,y,z) = sin(πx) · sin(πy) · sinh(πz) / sinh(π)
+Analytical solution: u(x,y,z) = sin(πx) · sin(πy) · sinh(kz) / sinh(k)
+where k = √2·π ≈ 4.443
 
 Based on Warp's example_diffusion_3d.py structure.
 """
