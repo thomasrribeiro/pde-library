@@ -10,15 +10,26 @@ Boundary conditions:
     u(x, 0, z) = 0              (front, y=0)
     u(x, 1, z) = 0              (back, y=1)
 
-Analytical solution: u(x,y,z) = sin(πx) · sin(πy) · sinh(πz) / sinh(π)
+Analytical solution: u(x,y,z) = sin(πx) · sin(πy) · sinh(kz) / sinh(k)
+where k = √2·π ≈ 4.443
 
-This is the natural 3D extension of the 2D Laplace problem, with the
-non-homogeneous boundary condition on the top face (z=1) instead of the
-top edge (y=1).
+Derivation:
+    Separating variables: u = sin(πx)sin(πy)f(z)
+    Substituting into ∇²u = 0:
+        -π²f - π²f + f'' = 0
+        f'' = 2π²f
+    General solution: f(z) = A·sinh(kz) + B·cosh(kz) where k = √(2π²) = √2·π
+    BC at z=0: f(0) = 0 → B = 0
+    BC at z=1: f(1) = 1 → A = 1/sinh(k)
+    Therefore: f(z) = sinh(kz)/sinh(k)
 """
 
 import numpy as np
 from typing import Tuple
+
+
+# Wavenumber k = √2·π for sin(πx)sin(πy) separation
+K_CONSTANT = np.sqrt(2.0) * np.pi
 
 
 def compute_analytical_solution(
@@ -26,7 +37,9 @@ def compute_analytical_solution(
     y_coordinates: np.ndarray,
     z_coordinates: np.ndarray,
 ) -> np.ndarray:
-    """Compute the exact solution u(x,y,z) = sin(πx)·sin(πy)·sinh(πz)/sinh(π).
+    """Compute the exact solution u(x,y,z) = sin(πx)·sin(πy)·sinh(kz)/sinh(k).
+
+    where k = √2·π
 
     Args:
         x_coordinates: Array of x coordinates
@@ -36,12 +49,12 @@ def compute_analytical_solution(
     Returns:
         Array of solution values at each point
     """
-    sinh_pi = np.sinh(np.pi)
+    sinh_k = np.sinh(K_CONSTANT)
     return (
         np.sin(np.pi * x_coordinates)
         * np.sin(np.pi * y_coordinates)
-        * np.sinh(np.pi * z_coordinates)
-        / sinh_pi
+        * np.sinh(K_CONSTANT * z_coordinates)
+        / sinh_k
     )
 
 
