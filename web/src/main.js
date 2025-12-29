@@ -795,6 +795,11 @@ async function render_all_solver_plots() {
             global_max = Math.max(global_max, range.max);
         }
 
+        // Clamp tiny negative values to 0 (numerical noise from solvers)
+        if (global_min < 0 && global_min > -1e-6) {
+            global_min = 0;
+        }
+
         // Create all plots with shared range
         for (const solver_id of state.active_solvers) {
             const grid_3d = state.solver_grids_3d[solver_id];
@@ -838,6 +843,11 @@ async function render_all_solver_plots() {
             const range = find_grid_range(grid);
             global_min = Math.min(global_min, range.min);
             global_max = Math.max(global_max, range.max);
+        }
+
+        // Clamp tiny negative values to 0 (numerical noise from solvers)
+        if (global_min < 0 && global_min > -1e-6) {
+            global_min = 0;
         }
 
         // Create all 2D plots with shared range
