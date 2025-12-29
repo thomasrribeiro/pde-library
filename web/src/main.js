@@ -72,7 +72,9 @@ import {
     reshape_to_3d_grid,
     compute_error_grid_3d,
     compute_error_norms_3d,
-    find_grid_range_3d
+    find_grid_range_3d,
+    save_camera_state,
+    clear_saved_camera_state
 } from './visualization/vtk-volume.js';
 
 // Solver label mapping
@@ -630,6 +632,9 @@ function perform_z_slice_update(z_position) {
 function handle_reset_view() {
     if (!is_3d_problem()) return;
 
+    // Clear saved camera state so future problems start with default view
+    clear_saved_camera_state();
+
     // Reset all solver plots
     for (const solver_id of state.active_solvers) {
         if (state.solver_grids_3d[solver_id]) {
@@ -793,6 +798,11 @@ function dispose_all_vtk_plots() {
 async function render_all_plots() {
     if (!state.equation || !state.boundary_condition || !state.dimension) {
         return;
+    }
+
+    // Save camera state before disposing (to preserve orientation/zoom when switching problems)
+    if (is_3d_problem()) {
+        save_camera_state();
     }
 
     // Dispose existing VTK plots before clearing data (frees GPU memory)

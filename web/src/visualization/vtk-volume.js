@@ -33,6 +33,35 @@ const vtk_contexts = {};
 // Flag to prevent recursive camera sync updates
 let is_syncing_cameras = false;
 
+// Saved camera state that persists across plot disposal/recreation
+let saved_camera_state = null;
+
+/**
+ * Save the current camera state from any existing plot.
+ * Call this before disposing plots to preserve camera orientation/zoom.
+ */
+export function save_camera_state() {
+    const context_ids = Object.keys(vtk_contexts);
+    if (context_ids.length === 0) return;
+
+    const context = vtk_contexts[context_ids[0]];
+    const camera = context.renderer.getActiveCamera();
+
+    saved_camera_state = {
+        position: camera.getPosition(),
+        focal_point: camera.getFocalPoint(),
+        view_up: camera.getViewUp(),
+        parallel_scale: camera.getParallelScale(),
+    };
+}
+
+/**
+ * Clear the saved camera state (e.g., when user clicks Reset View).
+ */
+export function clear_saved_camera_state() {
+    saved_camera_state = null;
+}
+
 /**
  * Synchronize camera state from source to all other VTK plots.
  * Called when user interacts with any plot's camera.
@@ -73,6 +102,7 @@ function sync_cameras_from(source_container_id) {
 /**
  * Set up camera synchronization listener for a VTK context.
  * Uses camera's onModified event to sync when camera changes.
+ * Restores saved camera state if available.
  *
  * @param {string} container_id - The container ID to set up sync for
  */
@@ -88,10 +118,21 @@ function setup_camera_sync(container_id) {
         sync_cameras_from(container_id);
     });
 
-    // If there are existing plots, sync new plot's camera to match them
+    // Priority 1: Restore saved camera state (from previous problem)
+    if (saved_camera_state) {
+        camera.setPosition(...saved_camera_state.position);
+        camera.setFocalPoint(...saved_camera_state.focal_point);
+        camera.setViewUp(...saved_camera_state.view_up);
+        camera.setParallelScale(saved_camera_state.parallel_scale);
+
+        context.renderer.resetCameraClippingRange();
+        context.renderWindow.render();
+        return;
+    }
+
+    // Priority 2: Sync from existing plots (when adding a new plot)
     const existing_ids = Object.keys(vtk_contexts).filter(id => id !== container_id);
     if (existing_ids.length > 0) {
-        // Sync from first existing plot to the new one
         const source_context = vtk_contexts[existing_ids[0]];
         const source_camera = source_context.renderer.getActiveCamera();
 
