@@ -348,9 +348,20 @@ function update_state_from_manifest() {
     state.available_solvers = problem.solvers || [];
     state.resolution = problem.default_resolution || 32;
 
-    // Reset active solvers to default
-    const default_solver = get_default_solver();
-    state.active_solvers = [default_solver];
+    // Preserve active solvers that are still available in the new problem
+    // Filter out any that don't exist in the new problem's solver list
+    const preserved_solvers = state.active_solvers.filter(
+        solver => state.available_solvers.includes(solver)
+    );
+
+    if (preserved_solvers.length > 0) {
+        // Keep the solvers that are still available
+        state.active_solvers = preserved_solvers;
+    } else {
+        // Fall back to default if none of the previous solvers are available
+        const default_solver = get_default_solver();
+        state.active_solvers = [default_solver];
+    }
 }
 
 /**
